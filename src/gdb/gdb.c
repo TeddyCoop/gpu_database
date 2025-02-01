@@ -60,8 +60,7 @@ gdb_database_add_table(GDB_Database* database, GDB_Table* table)
 {
   if (database->table_count == 0)
   {
-    // Allocate initial memory for the table pointers
-    database->tables = push_array(database->arena, GDB_Table*, 8); // Start with space for 8 tables
+    database->tables = push_array(database->arena, GDB_Table*, 8);
     database->table_capacity = 8;
   }
   else if (database->table_count >= database->table_capacity)
@@ -73,7 +72,6 @@ gdb_database_add_table(GDB_Database* database, GDB_Table* table)
     database->table_capacity = new_capacity;
   }
   
-  // Add the table
   database->tables[database->table_count++] = table;
 }
 
@@ -101,14 +99,14 @@ gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema)
 {
   if (table->column_count == 0)
   {
-    // Allocate initial memory for columns
-    table->columns = push_array(table->arena, GDB_Column*, 8); // Start with space for 8 columns
+    table->columns = push_array(table->arena, GDB_Column*, 8);
     table->column_capacity = 8;
   }
   else if (table->column_count >= table->column_capacity)
   {
-    // Grow the columns array if capacity is exceeded
+    // tec: grow the columns array if capacity is exceeded
     U64 double_capacity = table->column_capacity * 2;
+    // tec: TODO make this line look pretty
     U64 new_capacity = double_capacity > Million(1) ? table->column_capacity + (table->column_capacity * 0.5) : double_capacity;
     GDB_Column** new_columns = push_array(table->arena, GDB_Column*, new_capacity);
     MemoryCopy(new_columns, table->columns, sizeof(GDB_Column*) * table->column_count);
@@ -116,7 +114,7 @@ gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema)
     table->column_capacity = new_capacity;
   }
   
-  // Allocate and add the new column
+  // tec: allocate and add the new column
   GDB_Column* column = gdb_column_alloc(schema.name, schema.type, schema.size);
   table->columns[table->column_count++] = column;
 }
@@ -160,35 +158,38 @@ gdb_column_add_data(GDB_Column* column, void* data)
   {
     String8* str = (String8*)data;
     
-    // Grow offsets array if needed
+    //- tec: grow offsets array if needed
     if (column->row_count == column->capacity)
     {
       U64 new_capacity = (column->capacity > 0) ? column->capacity * 2 : GDB_COLUMN_EXPAND_COUNT;
       U64* new_offsets = push_array(column->arena, U64, new_capacity);
-      if (column->offsets) {
+      if (column->offsets) 
+      {
         MemoryCopy(new_offsets, column->offsets, sizeof(U64) * column->row_count);
       }
       column->offsets = new_offsets;
       column->capacity = new_capacity;
     }
     
-    // Grow variable data if needed
+    //- tec: grow variable data if needed
     U64 required_size = (column->row_count > 0 ? column->offsets[column->row_count - 1] : 0) + str->size;
     if (required_size > column->variable_capacity)
     {
       U64 new_variable_capacity = (column->variable_capacity > 0) ? column->variable_capacity * 2 : KB(4);
-      while (new_variable_capacity < required_size) {
+      while (new_variable_capacity < required_size)
+      {
         new_variable_capacity *= 2;
       }
       U8* new_variable_data = push_array(column->arena, U8, new_variable_capacity);
-      if (column->variable_data) {
+      if (column->variable_data) 
+      {
         MemoryCopy(new_variable_data, column->variable_data, column->variable_capacity);
       }
       column->variable_data = new_variable_data;
       column->variable_capacity = new_variable_capacity;
     }
     
-    // Add the string data
+    // tec: add string data
     //column->offsets[column->row_count] = (column->row_count > 0 ? column->offsets[column->row_count - 1] : 0);
     column->offsets[column->row_count] = (column->row_count > 0 ? column->offsets[column->row_count - 1] : 0) + str->size;
     MemoryCopy(column->variable_data + column->offsets[column->row_count], str->str, str->size);
@@ -213,7 +214,6 @@ gdb_column_add_data(GDB_Column* column, void* data)
       }
       //log_debug("growing column: old_capacity=%llu, new_capacity=%llu, size=%llu", column->capacity, new_capacity, column->size);
       
-      //U8* new_data = push_array(column->arena, U8, new_capacity * column->size);
       U8* new_data = arena_push(column->arena, new_capacity * column->size, 8);
       if (new_data == 0)
       {

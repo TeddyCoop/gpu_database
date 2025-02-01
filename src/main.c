@@ -26,7 +26,7 @@ test_print_database(GDB_Database *database)
     return;
   }
   
-  printf("Database: %.*s\n", database->name.size, database->name.str);
+  printf("Database: %.*s\n", (U32)database->name.size, database->name.str);
   printf("Tables: %llu\n", database->table_count);
   
   for (U64 i = 0; i < database->table_count; ++i)
@@ -38,7 +38,7 @@ test_print_database(GDB_Database *database)
       continue;
     }
     
-    printf("  Table %llu: %.*s\n", i, table->name.size, table->name.str);
+    printf("  Table %llu: %.*s\n", i, (U32)table->name.size, table->name.str);
     printf("    Columns: %llu\n", table->column_count);
     printf("    Rows: %llu\n", table->row_count);
     
@@ -47,7 +47,7 @@ test_print_database(GDB_Database *database)
       GDB_Column *column = table->columns[j];
       printf("      Column %llu: %.*s (Type: %d, Size: %llu, Rows: %llu)\n",
              j,
-             column->name.size, column->name.str,
+             (U32)column->name.size, column->name.str,
              column->type,
              column->size,
              column->row_count);
@@ -68,7 +68,7 @@ test_print_database(GDB_Database *database)
             .size = (k + 1 < column->row_count) ? column->offsets[k + 1] - offset : column->size - offset
           };
           */
-          printf("\"%.*s\"", str.size, str.str);
+          printf("\"%.*s\"", (U32)str.size, str.str);
           //printf("\"%s\"", str.str);
           if (k < column->row_count - 1) printf(", ");
         }
@@ -153,7 +153,6 @@ test_one_million_rows_filter(void)
   U64 filtered_count = 0;
   gpu_buffer_read(result_count, &filtered_count, sizeof(U64));
   
-  // Step 8: Print Filtered Results
   printf("Filtered Values (>= %llu):\n", threshold);
   for (U64 i = 0; i < filtered_count; i++)
   {
@@ -195,35 +194,7 @@ entry_point(void)
       gdb_table_add_row(table, row_data);
     }
     
-    print_database(database);
-    
-    /*
-    {
-    GDB_Database* database = gdb_database_alloc(str8_lit("database"));
-    gdb_add_database(database);
-    
-    GDB_ColumnSchema schemas[] = 
-    {
-      { str8_lit("id"), GDB_ColumnType_U32, sizeof(U32) },
-      { str8_lit("price"), GDB_ColumnType_F32, sizeof(F32) }
-    };
-    
-    GDB_Table* table = gdb_table_alloc(str8_lit("table"));
-    gdb_table_add_column(table, schemas[0]);
-    gdb_table_add_column(table, schemas[1]);
-    gdb_database_add_table(database, table);
-    
-    for (U32 i = 0; i < 10; i++)
-    {
-      U32 id = i;
-      F32 price = 5.0f * i;
-      void* row1[] = { &id, &price };
-      gdb_table_add_row(table, row1);
-    }
-    
-    //print_database(database);
-    }
-      */
+    test_print_database(database);
   }
   ProfCodeEnd(entry_point)
 }

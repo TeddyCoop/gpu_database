@@ -50,7 +50,7 @@ gpu_init(void)
   //- tec: OpenCL setup
   cl_int ret;
   
-  // Get platform and device
+  //- tec: get platform and device
   ret = clGetPlatformIDs(1, &g_opencl_state->platform, NULL);
   if (ret != CL_SUCCESS)
   {
@@ -63,14 +63,14 @@ gpu_init(void)
     log_error("Failed to get OpenCL device.\n");
   }
   
-  // Create context
+  //- tec: create context
   g_opencl_state->context = clCreateContext(NULL, 1, &g_opencl_state->device, NULL, NULL, &ret);
   if (ret != CL_SUCCESS) 
   {
     log_error("Failed to create OpenCL context.\n");
   }
   
-  // Create command queue
+  //- tec: create command queue
   g_opencl_state->command_queue = clCreateCommandQueue(g_opencl_state->context, g_opencl_state->device, 0, &ret);
   if (ret != CL_SUCCESS) 
   {
@@ -112,6 +112,7 @@ internal void
 gpu_buffer_release(GPU_Buffer* buffer)
 {
   clReleaseMemObject(buffer->buffer);
+  // tec: TODO add to free list
 }
 
 internal void
@@ -149,7 +150,8 @@ gpu_kernel_alloc(String8 name, String8 src)
 internal void
 gpu_kernel_release(GPU_Kernel *kernel)
 {
-  
+  clReleaseKernel(kernel->kernel);
+  // tec: TODO add to free list
 }
 
 internal void
@@ -231,6 +233,7 @@ gpu_table_release(GPU_Table* gpu_table)
       clReleaseMemObject(gpu_table->columns[i].buffer);
     }
   }
+  // tec: TODO add to free list
 }
 
 //~ tec: test
