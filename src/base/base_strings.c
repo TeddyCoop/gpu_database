@@ -44,7 +44,7 @@ read_only global U8 base64_reverse[128] = {
 };
 
 ////////////////////////////////
-//~ rjf: Character Classification & Conversion Functions
+//~ tec: Character Classification & Conversion Functions
 
 internal B32
 char_is_space(U8 c){
@@ -108,7 +108,7 @@ char_to_correct_slash(U8 c){
 }
 
 ////////////////////////////////
-//~ rjf: C-String Measurement
+//~ tec: C-String Measurement
 
 internal U64
 cstring8_length(U8 *c){
@@ -132,7 +132,7 @@ cstring32_length(U32 *c){
 }
 
 ////////////////////////////////
-//~ rjf: String Constructors
+//~ tec: String Constructors
 
 internal String8
 str8(U8 *str, U64 size){
@@ -229,7 +229,7 @@ str16_cstring_capped(void *cstr, void *cap)
 }
 
 ////////////////////////////////
-//~ rjf: String Stylization
+//~ tec: String Stylization
 
 internal String8
 upper_from_str8(Arena *arena, String8 string)
@@ -265,7 +265,7 @@ backslashed_from_str8(Arena *arena, String8 string)
 }
 
 ////////////////////////////////
-//~ rjf: String Matching
+//~ tec: String Matching
 
 internal B32
 str8_match(String8 a, String8 b, StringMatchFlags flags){
@@ -335,7 +335,7 @@ str8_ends_with(String8 string, String8 end, StringMatchFlags flags){
 }
 
 ////////////////////////////////
-//~ rjf: String Slicing
+//~ tec: String Slicing
 
 internal String8
 str8_substr(String8 str, Rng1U64 range){
@@ -396,7 +396,7 @@ str8_skip_chop_whitespace(String8 string){
 }
 
 ////////////////////////////////
-//~ rjf: String Formatting & Copying
+//~ tec: String Formatting & Copying
 
 internal String8
 push_str8_cat(Arena *arena, String8 s1, String8 s2){
@@ -442,9 +442,9 @@ push_str8f(Arena *arena, char *fmt, ...){
 }
 
 ////////////////////////////////
-//~ rjf: String <=> Integer Conversions
+//~ tec: String <=> Integer Conversions
 
-//- rjf: string -> integer
+//- tec: string -> integer
 
 internal S64
 sign_from_str8(String8 string, String8 *string_tail){
@@ -546,7 +546,7 @@ try_s64_from_str8_c_rules(String8 string, S64 *x){
   return(is_integer);
 }
 
-//- rjf: integer -> string
+//- tec: integer -> string
 
 internal String8
 str8_from_memory_size(Arena *arena, U64 z){
@@ -571,7 +571,7 @@ str8_from_u64(Arena *arena, U64 u64, U32 radix, U8 min_digits, U8 digit_group_se
 {
   String8 result = {0};
   {
-    // rjf: prefix
+    // tec: prefix
     String8 prefix = {0};
     switch(radix)
     {
@@ -580,7 +580,7 @@ str8_from_u64(Arena *arena, U64 u64, U32 radix, U8 min_digits, U8 digit_group_se
       case 2: {prefix = str8_lit("0b");}break;
     }
     
-    // rjf: determine # of chars between separators
+    // tec: determine # of chars between separators
     U8 digit_group_size = 3;
     switch(radix)
     {
@@ -591,7 +591,7 @@ str8_from_u64(Arena *arena, U64 u64, U32 radix, U8 min_digits, U8 digit_group_se
       {digit_group_size = 4;}break;
     }
     
-    // rjf: prep
+    // tec: prep
     U64 needed_leading_0s = 0;
     {
       U64 needed_digits = 1;
@@ -622,7 +622,7 @@ str8_from_u64(Arena *arena, U64 u64, U32 radix, U8 min_digits, U8 digit_group_se
       result.str[result.size] = 0;
     }
     
-    // rjf: fill contents
+    // tec: fill contents
     {
       U64 u64_reduce = u64;
       U64 digits_until_separator = digit_group_size;
@@ -650,7 +650,7 @@ str8_from_u64(Arena *arena, U64 u64, U32 radix, U8 min_digits, U8 digit_group_se
       }
     }
     
-    // rjf: fill prefix
+    // tec: fill prefix
     if(prefix.size != 0)
     {
       MemoryCopy(result.str, prefix.str, prefix.size);
@@ -663,7 +663,7 @@ internal String8
 str8_from_s64(Arena *arena, S64 s64, U32 radix, U8 min_digits, U8 digit_group_separator)
 {
   String8 result = {0};
-  // TODO(rjf): preeeeetty sloppy...
+  // TODO(tec): preeeeetty sloppy...
   if(s64 < 0)
   {
     Temp scratch = scratch_begin(&arena, 1);
@@ -679,16 +679,16 @@ str8_from_s64(Arena *arena, S64 s64, U32 radix, U8 min_digits, U8 digit_group_se
 }
 
 ////////////////////////////////
-//~ rjf: String <=> Float Conversions
+//~ tec: String <=> Float Conversions
 
 internal F64
 f64_from_str8(String8 string)
 {
-  // TODO(rjf): crappy implementation for now that just uses atof.
+  // TODO(tec): crappy implementation for now that just uses atof.
   F64 result = 0;
   if(string.size > 0)
   {
-    // rjf: find starting pos of numeric string, as well as sign
+    // tec: find starting pos of numeric string, as well as sign
     F64 sign = +1.0;
     if(string.str[0] == '-')
     {
@@ -699,7 +699,7 @@ f64_from_str8(String8 string)
       sign = 1.0;
     }
     
-    // rjf: gather numerics
+    // tec: gather numerics
     U64 num_valid_chars = 0;
     char buffer[64];
     B32 exp = 0;
@@ -715,17 +715,17 @@ f64_from_str8(String8 string)
       }
     }
     
-    // rjf: null-terminate (the reason for all of this!!!!!!)
+    // tec: null-terminate (the reason for all of this!!!!!!)
     buffer[num_valid_chars] = 0;
     
-    // rjf: do final conversion
+    // tec: do final conversion
     result = sign * atof(buffer);
   }
   return result;
 }
 
 ////////////////////////////////
-//~ rjf: String List Construction Functions
+//~ tec: String List Construction Functions
 
 internal String8Node*
 str8_list_push_node(String8List *list, String8Node *node){
@@ -945,7 +945,7 @@ str8_list_from_flags(Arena *arena, String8List *list,
 }
 
 ////////////////////////////////
-//~ rjf; String Arrays
+//~ tec; String Arrays
 
 internal String8Array
 str8_array_from_list(Arena *arena, String8List *list)
@@ -971,7 +971,7 @@ str8_array_reserve(Arena *arena, U64 count)
 }
 
 ////////////////////////////////
-//~ rjf: String Path Helpers
+//~ tec: String Path Helpers
 
 internal String8
 str8_chop_last_slash(String8 string){
@@ -1171,7 +1171,7 @@ str8_txt_pt_pair_from_string(String8 string)
     String8 line_part = {0};
     String8 col_part = {0};
     
-    // rjf: grab file part
+    // tec: grab file part
     for(U64 idx = 0; idx <= string.size; idx += 1)
     {
       U8 byte = (idx < string.size) ? (string.str[idx]) : 0;
@@ -1189,7 +1189,7 @@ str8_txt_pt_pair_from_string(String8 string)
       }
     }
     
-    // rjf: grab line/column
+    // tec: grab line/column
     {
       U64 colon_pos = str8_find_needle(line_part, 0, str8_lit(":"), 0);
       if(colon_pos < line_part.size)
@@ -1199,13 +1199,13 @@ str8_txt_pt_pair_from_string(String8 string)
       }
     }
     
-    // rjf: convert line/column strings to numerics
+    // tec: convert line/column strings to numerics
     U64 line = 0;
     U64 column = 0;
     try_u64_from_str8_c_rules(line_part, &line);
     try_u64_from_str8_c_rules(col_part, &column);
     
-    // rjf: fill
+    // tec: fill
     pair.string = file_part;
     pair.pt = txt_pt((S64)line, (S64)column);
     if(pair.pt.line == 0) { pair.pt.line = 1; }
@@ -1215,7 +1215,7 @@ str8_txt_pt_pair_from_string(String8 string)
 }
 
 ////////////////////////////////
-//~ rjf: UTF-8 & UTF-16 Decoding/Encoding
+//~ tec: UTF-8 & UTF-16 Decoding/Encoding
 
 read_only global U8 utf8_class[32] = {
   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,2,2,2,2,3,3,4,5,
@@ -1349,7 +1349,7 @@ utf8_from_utf32_single(U8 *buffer, U32 character){
 }
 
 ////////////////////////////////
-//~ rjf: Unicode String Conversions
+//~ tec: Unicode String Conversions
 
 internal String8
 str8_from_16(Arena *arena, String16 in){
@@ -1419,7 +1419,7 @@ str32_from_8(Arena *arena, String8 in){
 }
 
 ////////////////////////////////
-//~ rjf: Basic Types & Space Enum -> String Conversions
+//~ tec: Basic Types & Space Enum -> String Conversions
 
 internal String8
 string_from_dimension(Dimension dimension){
@@ -1481,7 +1481,7 @@ string_from_arch(Architecture arch){
 }
 
 ////////////////////////////////
-//~ rjf: Time Types -> String
+//~ tec: Time Types -> String
 
 internal String8
 string_from_week_day(WeekDay week_day){
@@ -1572,7 +1572,7 @@ string_from_elapsed_time(Arena *arena, DateTime dt){
 }
 
 ////////////////////////////////
-//~ rjf: Basic Text Indentation
+//~ tec: Basic Text Indentation
 
 internal String8
 indented_from_string(Arena *arena, String8 string)
@@ -1614,7 +1614,7 @@ indented_from_string(Arena *arena, String8 string)
 }
 
 ////////////////////////////////
-//~ rjf: Text Escaping
+//~ tec: Text Escaping
 
 internal String8
 escaped_from_raw_str8(Arena *arena, String8 string)
@@ -1708,7 +1708,7 @@ raw_from_escaped_str8(Arena *arena, String8 string)
 }
 
 ////////////////////////////////
-//~ rjf: Text Wrapping
+//~ tec: Text Wrapping
 
 internal String8List
 wrapped_lines_from_string(Arena *arena, String8 string, U64 first_line_max_width, U64 max_width, U64 wrap_indent)
@@ -1766,7 +1766,7 @@ wrapped_lines_from_string(Arena *arena, String8 string, U64 first_line_max_width
 }
 
 ////////////////////////////////
-//~ rjf: String <-> Color
+//~ tec: String <-> Color
 
 internal String8
 hex_string_from_rgba_4f32(Arena *arena, Vec4F32 rgba)
@@ -1798,7 +1798,7 @@ rgba_from_hex_string_4f32(String8 hex_string)
 }
 
 ////////////////////////////////
-//~ rjf: String Fuzzy Matching
+//~ tec: String Fuzzy Matching
 
 internal FuzzyMatchRangeList
 fuzzy_match_find(Arena *arena, String8 needle, String8 haystack)
@@ -2004,7 +2004,7 @@ str8_serial_push_string(Arena *arena, String8List *srl, String8 str){
 }
 
 ////////////////////////////////
-//~ rjf: Deserialization Helpers
+//~ tec: Deserialization Helpers
 
 internal U64
 str8_deserial_read(String8 string, U64 off, void *read_dst, U64 read_size, U64 granularity)

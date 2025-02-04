@@ -512,6 +512,15 @@ os_properties_from_file_path(String8 path)
 internal OS_Handle
 os_file_map_open(OS_AccessFlags flags, OS_Handle file)
 {
+  LARGE_INTEGER file_size;
+  if (!GetFileSizeEx((HANDLE)file.u64[0], &file_size) || file_size.QuadPart == 0)
+  {
+    LARGE_INTEGER new_size;
+    new_size.QuadPart = 4096;
+    SetFilePointerEx((HANDLE)file.u64[0], new_size, NULL, FILE_BEGIN);
+    SetEndOfFile((HANDLE)file.u64[0]);
+  }
+  
   OS_Handle map = {0};
   {
     HANDLE file_handle = (HANDLE)file.u64[0];
@@ -535,6 +544,11 @@ os_file_map_open(OS_AccessFlags flags, OS_Handle file)
     }
     HANDLE map_handle = CreateFileMappingA(file_handle, 0, protect_flags, 0, 0, 0);
     map.u64[0] = (U64)map_handle;
+    if (!map_handle)
+    {
+      DWORD error = GetLastError();
+      log_error("CreateFileMappingA failed - Code: %lu", error);
+    }
   }
   return map;
 }
@@ -545,6 +559,62 @@ os_file_map_close(OS_Handle map)
   HANDLE handle = (HANDLE)map.u64[0];
   BOOL result = CloseHandle(handle);
   (void)result;
+}
+
+internal B32
+os_file_map_resize(OS_Handle* map, OS_Handle file, void** mapped_ptr, U64 new_size)
+{
+  // Get current file size
+  LARGE_INTEGER file_size;
+  if (!GetFileSizeEx((HANDLE)file.u64[0], &file_size))
+  {
+    log_error("Failed to get file size");
+    return 0;
+  }
+  
+  // Resize file if needed
+  if ((U64)file_size.QuadPart < new_size)
+  {
+    LARGE_INTEGER new_file_size;
+    new_file_size.QuadPart = new_size;
+    if (!SetFilePointerEx((HANDLE)file.u64[0], new_file_size, NULL, FILE_BEGIN) || !SetEndOfFile((HANDLE)file.u64[0]))
+    {
+      log_error("Failed to resize file");
+      return 0;
+    }
+  }
+  
+  // Close previous mapping if it exists
+  if (map->u64[0])
+  {
+    os_file_map_close(*map);
+    *map = (OS_Handle){0};
+  }
+  
+  // Create new file mapping
+  *map = os_file_map_open(OS_AccessFlag_Read | OS_AccessFlag_Write, file);
+  if (!map->u64[0])
+  {
+    log_error("Failed to create file mapping");
+    return 0;
+  }
+  
+  // Unmap previous view if it exists
+  if (mapped_ptr)
+  {
+    os_file_map_view_close(*map, *mapped_ptr, (Rng1U64){0, file_size.QuadPart});
+    *mapped_ptr = NULL;
+  }
+  
+  // Map new view
+  *mapped_ptr = os_file_map_view_open(*map, OS_AccessFlag_Read | OS_AccessFlag_Write, (Rng1U64){0, new_size});
+  if (!*mapped_ptr)
+  {
+    log_error("Failed to map file view");
+    os_file_map_close(*map);
+  }
+  
+  return 1;
 }
 
 internal void *

@@ -70,7 +70,7 @@ struct OS_FileInfo
   FileProperties props;
 };
 
-// nick: on-disk file identifier
+// tec: on-disk file identifier
 typedef struct OS_FileID OS_FileID;
 struct OS_FileID
 {
@@ -219,6 +219,7 @@ internal FileProperties os_properties_from_file_path(String8 path);
 //- tec: file maps
 internal OS_Handle os_file_map_open(OS_AccessFlags flags, OS_Handle file);
 internal void      os_file_map_close(OS_Handle map);
+internal B32       os_file_map_resize(OS_Handle* map, OS_Handle file, void** mapped_pointer, U64 new_size);
 internal void *    os_file_map_view_open(OS_Handle map, OS_AccessFlags flags, Rng1U64 range);
 internal void      os_file_map_view_close(OS_Handle map, void *ptr, Rng1U64 range);
 

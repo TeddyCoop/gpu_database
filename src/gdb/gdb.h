@@ -3,9 +3,38 @@
 #ifndef GDB_H
 #define GDB_H
 
+#define GDB_FILE_FORMAT_VERSION_MAJOR 0
+#define GDB_FILE_FORMAT_VERSION_MINOR 1
+
+/*
+file format:
+
+[database header]
+name - String8
+table count - U64
+
+  this will be an array of tables
+[table header]
+name - String8
+column count - U64
+ row count - U64
+
+array of columns
+[column header]
+name - String8
+type - U8 (enum)
+capacity - U64
+data - U8*
+if variable width data
+offsets - U64*
+
+*/
+
 #define GDB_COLUMN_EXPAND_COUNT 128
 
-typedef enum GDB_ColumnType
+//typedef enum GDB_ColumnType
+typedef U32 GDB_ColumnType;
+enum
 {
   GDB_ColumnType_U32,
   GDB_ColumnType_U64,
@@ -13,7 +42,7 @@ typedef enum GDB_ColumnType
   GDB_ColumnType_F64,
   GDB_ColumnType_String8,
   GDB_ColumnType_COUNT
-} GDB_ColumnType;
+};
 
 typedef struct GDB_ColumnSchema GDB_ColumnSchema;
 struct GDB_ColumnSchema
@@ -39,6 +68,7 @@ struct GDB_Column
   U8 *data;
   U8 *variable_data;
   U64 *offsets;
+  
 };
 
 typedef struct GDB_Table GDB_Table;
@@ -51,6 +81,11 @@ struct GDB_Table
   U64 column_capacity;
   U64 row_count;
   GDB_Column** columns;
+  
+  // tec: memory mapped
+  OS_Handle file;
+  OS_Handle map;
+  void* mapped_ptr;
 };
 
 typedef struct GDB_Database GDB_Database;
@@ -82,11 +117,16 @@ internal void gdb_add_database(GDB_Database* database);
 internal GDB_Database* gdb_database_alloc(String8 name);
 internal void gdb_database_release(GDB_Database* database);
 internal void gdb_database_add_table(GDB_Database* database, GDB_Table* table);
+internal B32 gdb_database_save(GDB_Database* database, String8 directory);
+internal GDB_Database* gdb_database_load(String8 directory);
+internal void gdb_database_close(GDB_Database* database);
 
 internal GDB_Table* gdb_table_alloc(String8 name);
 internal void gdb_table_release(GDB_Table* table);
 internal void gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema);
 internal void gdb_table_add_row(GDB_Table* table, void** row_data);
+internal B32 gdb_table_save(GDB_Table* table, String8 path);
+internal GDB_Table* gdb_table_load(String8 path);
 
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);
 internal void gdb_column_release(GDB_Column* column);

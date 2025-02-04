@@ -118,13 +118,23 @@ gpu_buffer_release(GPU_Buffer* buffer)
 internal void
 gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size)
 {
-  clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  ProfCodeBegin(clEnqueueWriteBuffer);
+  {
+    
+    clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  }
+  ProfCodeEnd(clEnqueueWriteBuffer);
 }
 
 internal void
 gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 {
-  clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  ProfCodeBegin(clEnqueueReadBuffer);
+  {
+    
+    clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  }
+  ProfCodeEnd(clEnqueueReadBuffer);
 }
 
 //~ tec: kernel
@@ -136,12 +146,13 @@ gpu_kernel_alloc(String8 name, String8 src)
   cl_int ret = 0;
   
   cl_program program = gpu_opencl_build_program(src);
+  kernel->name = name;
   kernel->program = program;
   kernel->kernel = clCreateKernel(program, name.str, &ret);
   
   if (ret != CL_SUCCESS) 
   {
-    log_error("failed to create kernel");
+    log_error("failed to create kernel \'%s\'", kernel->name.str);
   }
   
   return kernel;
@@ -170,15 +181,40 @@ gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 global_work_size, U
     }
   }
   
-  err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
+  ProfCodeBegin(clEnqueueNDRangeKernel);
+  {
+    err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
+  }
+  ProfCodeEnd(clEnqueueNDRangeKernel);
+  
   if (err != CL_SUCCESS)
   {
     log_error("failed to execute OpenCL kernel (Code: %d)", err);
     return;
   }
   
-  // Wait for execution to complete
+  // tec: wait for execution to complete
   clFinish(g_opencl_state->command_queue);
+}
+
+internal void
+gpu_kernel_set_arg_buffer(GPU_Kernel* kernel, U32 index, GPU_Buffer* buffer)
+{
+  cl_int err = clSetKernelArg(kernel->kernel, index, sizeof(cl_mem), &buffer->buffer);
+  if (err != CL_SUCCESS)
+  {
+    log_error("failed to set argument %u for kernel (code: %d)", index, err);
+  }
+}
+
+internal void
+gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
+{
+  cl_int err = clSetKernelArg(kernel->kernel, index, sizeof(cl_ulong), &value);
+  if (err != CL_SUCCESS)
+  {
+    log_error("failed to set argument %llu for kernel (code: %d)", index, err);
+  }
 }
 
 //~ tec: table
@@ -252,11 +288,21 @@ String8 g_filter_kernel_string = str8_lit_comp(
                                                "}\n"
                                                "}");
 
-String8 g_test_kernel_string = str8_lit_comp("__kernel void test_kernel(__global int *input, const int value, __global int *output)"
-                                             "{"
-                                             "int gid = get_global_id(0);"
-                                             "output[gid] = input[gid] + value;"
-                                             "}");
+String8 g_stress_test_kernel_string = str8_lit_comp("__kernel void stress_test(\n"
+                                                    "__global const ulong* col1,   // U32 Column\n"
+                                                    "__global const double* col2,  // F32 Column\n"
+                                                    "__global ulong* result,       // Output (filtered U32)\n"
+                                                    "__global ulong* count,        // Result count\n"
+                                                    "ulong threshold               // Filter condition\n"
+                                                    ") {\n"
+                                                    "int gid = get_global_id(0);\n"
+                                                    "\n"
+                                                    "// Apply some computation (e.g., filter col1 where col2 > threshold)\n"
+                                                    "if (col2[gid] > (double)threshold) {\n"
+                                                    "ulong index = atomic_add(count, 1);\n"
+                                                    "result[index] = col1[gid];\n"
+                                                    "}\n"
+                                                    "}");
 
 internal void
 execute_filter_kernel(GPU_Kernel* kernel, GPU_Table* gpu_table, U64 threshold, GPU_Buffer* result_buffer, GPU_Buffer* result_count)
