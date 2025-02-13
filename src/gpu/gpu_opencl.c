@@ -1,5 +1,4 @@
 
-
 internal cl_mem_flags
 gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
 {
@@ -120,7 +119,6 @@ gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size)
 {
   ProfCodeBegin(clEnqueueWriteBuffer);
   {
-    
     clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
   }
   ProfCodeEnd(clEnqueueWriteBuffer);
@@ -172,6 +170,7 @@ gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 global_work_size, U
   size_t global_size[] = { global_work_size };
   size_t local_size[] = { local_work_size };
   
+  /*
   for (U64 i = 0; i < table->column_count; i++)
   {
     err = clSetKernelArg(kernel->kernel, i, sizeof(cl_mem), &table->columns[i].buffer);
@@ -180,6 +179,7 @@ gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 global_work_size, U
       log_error("failed to set argument %llu for kernel (code: %d)", i, err);
     }
   }
+  */
   
   ProfCodeBegin(clEnqueueNDRangeKernel);
   {
@@ -228,7 +228,6 @@ gpu_table_transfer(GDB_Table* table)
   gpu_table->row_count = table->row_count;
   gpu_table->columns = push_array(g_opencl_state->arena, GPU_Buffer, table->column_count);
   
-  // Transfer each column to the GPU
   for (U64 i = 0; i < table->column_count; i++)
   {
     GDB_Column* column = table->columns[i];
@@ -237,14 +236,13 @@ gpu_table_transfer(GDB_Table* table)
     U64 buffer_size = column->size * column->row_count;
     if (column->type == GDB_ColumnType_String8)
     {
-      buffer_size = column->offsets[column->row_count - 1]; // Size of variable-width data
+      buffer_size = column->offsets[column->row_count - 1];
     }
     
-    // Allocate GPU buffer
     gpu_table->columns[i].buffer = clCreateBuffer(g_opencl_state->context,
                                                   CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
                                                   buffer_size,
-                                                  column->data, // Copy initial data from CPU to GPU
+                                                  column->data,
                                                   &err);
     
     if (err != CL_SUCCESS)
@@ -270,6 +268,12 @@ gpu_table_release(GPU_Table* gpu_table)
     }
   }
   // tec: TODO add to free list
+}
+
+internal GPU_Buffer*
+gpu_table_get_column_buffer(GPU_Table* table, U64 column_index)
+{
+  return &table->columns[column_index];
 }
 
 //~ tec: test
@@ -362,4 +366,178 @@ execute_filter_kernel(GPU_Kernel* kernel, GPU_Table* gpu_table, U64 threshold, G
     return;
   }
   
+}
+
+//~ tec: kernel generation
+internal String8
+gpu_opencl_type_from_column_type(GDB_ColumnType type)
+{
+  switch (type)
+  {
+    case GDB_ColumnType_U32: return str8_lit("uint"); break;
+    case GDB_ColumnType_U64: return str8_lit("ulong"); break;
+    case GDB_ColumnType_F32: return str8_lit("float"); break;
+    case GDB_ColumnType_F64: return str8_lit("double"); break;
+    case GDB_ColumnType_String8: return str8_lit("char"); break;
+  }
+  
+  log_error("invalid GDB_ColumnType");
+  return str8_lit("invalid");
+}
+
+internal void generate_condition_code(Arena *arena, IR_Node *node, String8List *builder) {
+  if (!node) return;
+  
+  if (node->type == IR_NodeType_Operator)
+  {
+    str8_list_push(arena, builder, str8_lit("("));
+    generate_condition_code(arena, node->left, builder);
+    str8_list_push(arena, builder, str8_lit(" "));
+    str8_list_push(arena, builder, node->value);
+    str8_list_push(arena, builder, str8_lit(" "));
+    generate_condition_code(arena, node->right, builder);
+    str8_list_push(arena, builder, str8_lit(")"));
+  } 
+  else if (node->type == IR_NodeType_Column) 
+  {
+    // Translate column to input buffer reference
+    //String8 column_buffer = get_column_buffer_index(node);  // Function to get buffer index as a String8
+    String8 format = push_str8f(arena, "input_buffer_%.*s[id]", node->value.size, node->value.str);
+    //String8 format = push_str8f(arena, "input_buffer_something[id]");
+    str8_list_push(arena, builder, format);
+  }
+  else if (node->type == IR_NodeType_Literal)
+  {
+    // Add literal value
+    str8_list_push(arena, builder, node->value);
+  } 
+  else if (node->type == IR_NodeType_Condition)
+  {
+    generate_condition_code(arena, node->left, builder);
+  }
+}
+
+/*
+internal String8
+gpu_generate_kernel_from_ir(Arena* arena, IR_Query* query, GDB_Column** selected_columns)
+{
+  String8List builder = { 0 };
+  
+  str8_list_push(arena, &builder, str8_lit("__kernel void query("));
+  
+  IR_Node *column = query->select_columns;
+  U32 column_index = 0;
+  while (column)
+  {
+    str8_list_push(arena, &builder, str8_lit("__global "));
+    str8_list_push(arena, &builder, gpu_opencl_type_from_column_type(selected_columns[column_index]->type));
+    //str8_list_pushf(arena, &builder, "input_buffer_%u", column_index);
+    str8_list_pushf(arena, &builder, "* input_buffer_%.*s", column->value.size, column->value.str);
+    
+    if (column->next || query->where_conditions) 
+    {
+      str8_list_push(arena, &builder, str8_lit(", "));
+    }
+    
+    column = column->next;
+    column_index++;
+  }
+  
+  str8_list_push(arena, &builder, str8_lit("__global uint *output_buffer"));
+  //str8_list_push(arena, &builder, str8_lit("__global uint *output_buffer, "));
+  //str8_list_push(arena, &builder, str8_lit("const ulong input_buffer_size"));
+  
+  str8_list_push(arena, &builder, str8_lit(") {\n"));
+  
+  str8_list_push(arena, &builder, str8_lit("    ulong id = get_global_id(0);\n"));
+  //str8_list_push(arena, &builder, str8_lit("    if (id >= input_buffer_size) return;\n"));
+  
+  if (query->where_conditions)
+  {
+    str8_list_push(arena, &builder, str8_lit("    if (!"));
+    generate_condition_code(arena, query->where_conditions, &builder);
+    str8_list_push(arena, &builder, str8_lit(") return;\n"));
+  }
+  
+  str8_list_push(arena, &builder, str8_lit("    // Output selected columns\n"));
+  column = query->select_columns;
+  column_index = 0;
+  while (column)
+  {
+    str8_list_pushf(arena, &builder, "    output_buffer[id * %u + %u] = input_buffer_%.*s[id];\n",
+                    query->select_column_count, column_index, column->value.size, column->value.str);
+    column = column->next;
+    column_index++;
+  }
+  
+  str8_list_push(arena, &builder, str8_lit("}\n"));
+  
+  return str8_list_join(arena, &builder, NULL);
+}
+*/
+
+internal String8
+gpu_generate_kernel_from_ir(Arena* arena, IR_Query* query, GDB_Column** selected_columns)
+{
+  String8List builder = { 0 };
+  
+  // Kernel header
+  str8_list_push(arena, &builder, str8_lit("__kernel void query("));
+  
+  // Input buffers for selected columns
+  IR_Node* column = query->select_columns;
+  U32 column_index = 0;
+  while (column)
+  {
+    str8_list_push(arena, &builder, str8_lit("__global "));
+    str8_list_push(arena, &builder, gpu_opencl_type_from_column_type(selected_columns[column_index]->type));
+    str8_list_pushf(arena, &builder, "* input_buffer_%.*s", column->value.size, column->value.str);
+    
+    if (column->next || query->where_conditions || 1) // Ensure proper separation
+    {
+      str8_list_push(arena, &builder, str8_lit(", "));
+    }
+    
+    column = column->next;
+    column_index++;
+  }
+  
+  // Output buffer and result count
+  str8_list_push(arena, &builder, str8_lit("__global ulong* output_buffer, "));
+  str8_list_push(arena, &builder, str8_lit("__global ulong* result_count, "));
+  str8_list_push(arena, &builder, str8_lit("const ulong input_buffer_size"));
+  
+  // Begin kernel body
+  str8_list_push(arena, &builder, str8_lit(") {\n"));
+  str8_list_push(arena, &builder, str8_lit("    ulong id = get_global_id(0);\n"));
+  str8_list_push(arena, &builder, str8_lit("    if (id >= input_buffer_size) return;\n"));
+  
+  // Initialize WHERE clause filtering
+  if (query->where_conditions)
+  {
+    str8_list_push(arena, &builder, str8_lit("    if (!("));
+    generate_condition_code(arena, query->where_conditions, &builder);
+    str8_list_push(arena, &builder, str8_lit(")) return;\n"));
+  }
+  
+  // Atomic increment to determine output index
+  str8_list_push(arena, &builder, str8_lit("    ulong output_index = atomic_add(result_count, 1);\n"));
+  
+  // Write selected columns to output buffer
+  column = query->select_columns;
+  column_index = 0;
+  while (column)
+  {
+    str8_list_pushf(arena, &builder,
+                    "    output_buffer[output_index * %u + %u] = input_buffer_%.*s[id];\n",
+                    query->select_column_count, column_index, column->value.size, column->value.str);
+    
+    column = column->next;
+    column_index++;
+  }
+  
+  // End kernel body
+  str8_list_push(arena, &builder, str8_lit("}\n"));
+  
+  return str8_list_join(arena, &builder, NULL);
 }

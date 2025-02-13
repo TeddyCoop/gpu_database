@@ -3,7 +3,9 @@
 #include "base/base_inc.h"
 #include "os/os_inc.h"
 #include "gdb/gdb_inc.h"
+#include "ir_gen/ir_gen_inc.h"
 #include "gpu/gpu_inc.h"
+#include "application.h"
 
 #define ProfCodeBegin(name) \
 U64 __prof_start_##name = os_now_microseconds();
@@ -15,7 +17,9 @@ log_info("%s took:: %llu milliseconds", #name, __prof_elapsed_##name / 1000);
 #include "base/base_inc.c"
 #include "os/os_inc.c"
 #include "gpu/gpu_inc.c"
+#include "ir_gen/ir_gen_inc.c"
 #include "gdb/gdb_inc.c"
+#include "application.c"
 
 internal void
 test_print_database(GDB_Database *database) 
@@ -212,14 +216,14 @@ test_stress()
   GDB_ColumnSchema id_schema = (GDB_ColumnSchema){ str8_lit("id"), GDB_ColumnType_U64, sizeof(U64) };
   GDB_ColumnSchema price_schema = (GDB_ColumnSchema){ str8_lit("price"), GDB_ColumnType_F64, sizeof(F64) };
   
-  GDB_Table* table = gdb_table_alloc(str8_lit("stress table"));
+  GDB_Table* table = gdb_table_alloc(str8_lit("table"));
   gdb_table_add_column(table, id_schema);
   gdb_table_add_column(table, price_schema);
   gdb_database_add_table(database, table);
   
   srand(42);
   const U64 row_count = Million(1);
-  //const U64 row_count = 10;
+  //const U64 row_count = 50;
   
   for (U64 i = 0; i < row_count; i++)
   {
@@ -265,17 +269,27 @@ entry_point(void)
 {
   ProfCodeBegin(entry_point)
   {
+    gdb_init();
     ProfCodeBegin(gpu_init)
     {
       gpu_init();
     }
     ProfCodeEnd(gpu_init);
-    gdb_init();
     
-    //test_one_million_rows_filter();
+    String8 sql_query = str8_lit(
+                                 "USE test_2_column;\n"
+                                 "SELECT id, price FROM table WHERE id > 50;"
+                                 );
+    app_execute_query(sql_query);
+    /*
+    */
+    
+    /*
+    test_one_million_rows_filter();
     //test_save_database();
     //test_load_database();
-    test_stress();
+    //test_stress();
+    */
   }
   ProfCodeEnd(entry_point)
 }

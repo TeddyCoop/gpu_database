@@ -156,6 +156,27 @@ gdb_database_load(String8 directory_path)
   return database;
 }
 
+internal void
+gdb_database_close(GDB_Database* database)
+{
+  
+}
+
+internal GDB_Table* 
+gdb_database_find_table(GDB_Database* database, String8 table_name)
+{
+  for (U64 i = 0; i < database->table_count; i++)
+  {
+    GDB_Table* table = database->tables[i];
+    if (str8_match(table->name, table_name, 0))
+    {
+      return table;
+    }
+  }
+  log_error("failed to find table '%.*s' in database '%.*s", table_name.size, table_name.str,
+            database->name.size, database->name.str);
+  return NULL;
+}
 
 //~ tec: tables
 internal GDB_Table*
@@ -376,8 +397,25 @@ gdb_table_load(String8 path)
   table->map = map;
   table->file = file;
   table->mapped_ptr = mapped_ptr;
+  table->name = str8_chop_last_dot(str8_skip_last_slash(path));
   
   return table;
+}
+
+internal GDB_Column*
+gdb_table_find_column(GDB_Table* table, String8 column_name)
+{
+  for (U64 i = 0; i < table->column_count; i++)
+  {
+    GDB_Column* column = table->columns[i];
+    if (str8_match(column->name, column_name, 0))
+    {
+      return column;
+    }
+  }
+  log_error("failed to find column '%.*s' in table '%.*s", column_name.size, column_name.str,
+            table->name.size, table->name.str);
+  return NULL;
 }
 
 //~ tec: column

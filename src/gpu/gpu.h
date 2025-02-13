@@ -36,5 +36,6 @@ internal void gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 globa
 internal GPU_Table* gpu_table_transfer(GDB_Table* table);
 internal void gpu_table_release(GPU_Table* table);
 
+internal String8 gpu_generate_kernel_from_ir(Arena* arena, IR_Query* ir_query, GDB_Column** selected_columns);
 
 #endif //GPU_H
