@@ -715,7 +715,7 @@ f64_from_str8(String8 string)
       }
     }
     
-    // tec: null-terminate (the reason for all of this!!!!!!)
+    // tec: null-terminate
     buffer[num_valid_chars] = 0;
     
     // tec: do final conversion

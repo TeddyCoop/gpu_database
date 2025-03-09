@@ -479,7 +479,7 @@ struct TxtRng
 };
 
 ////////////////////////////////
-//~ NOTE(allen): Constants
+//~ tec: constants
 
 global U32 sign32     = 0x80000000;
 global U32 exponent32 = 0x7F800000;

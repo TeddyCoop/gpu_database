@@ -6,10 +6,6 @@
 ////////////////////////////////
 //~ tec: Zero Settings
 
-#if !defined(PROFILE_TELEMETRY)
-# define PROFILE_TELEMETRY 0
-#endif
-
 #if !defined(PROFILE_REMOTERY)
 # define PROFILE_REMOTERY 0
 #endif
@@ -21,36 +17,8 @@
 ////////////////////////////////
 //~ tec: Third Party Includes
 
-#if PROFILE_TELEMETRY
-# include "rad_tm.h"
-# if OS_WINDOWS
-#  pragma comment(lib, "rad_tm_win64.lib")
-# endif
-#endif
-
 #if PROFILE_REMOTERY
 # include "third_party/Remotery/Remotery.h"
-//# include "third_party/Remotery/Remotery.c"
-#endif
-
-////////////////////////////////
-//~ tec: Telemetry Profile Defines
-
-#if PROFILE_TELEMETRY
-# define ProfBegin(...)            tmEnter(0, 0, __VA_ARGS__)
-# define ProfBeginDynamic(...)     (TM_API_PTR ? TM_API_PTR->_tmEnterZoneV_Core(0, 0, __FILE__, &g_telemetry_filename_id, __LINE__, __VA_ARGS__) : (void)0)
-# define ProfEnd(...)              (TM_API_PTR ? TM_API_PTR->_tmLeaveZone(0) : (void)0)
-# define ProfTick(...)             tmTick(0)
-# define ProfIsCapturing(...)      tmRunning()
-# define ProfBeginCapture(...)     tmOpen(0, __VA_ARGS__, __DATE__, "localhost", TMCT_TCP, TELEMETRY_DEFAULT_PORT, TMOF_INIT_NETWORKING|TMOF_CAPTURE_CONTEXT_SWITCHES, 100)
-# define ProfEndCapture(...)       tmClose(0)
-# define ProfThreadName(...)       (TM_API_PTR ? TM_API_PTR->_tmThreadName(0, 0, __VA_ARGS__) : (void)0)
-# define ProfMsg(...)              (TM_API_PTR ? TM_API_PTR->_tmMessageV_Core(0, TMMF_ICON_NOTE, __FILE__, &g_telemetry_filename_id, __LINE__, __VA_ARGS__) : (void)0)
-# define ProfBeginLockWait(...)    tmStartWaitForLock(0, 0, __VA_ARGS__)
-# define ProfEndLockWait(...)      tmEndWaitForLock(0)
-# define ProfLockTake(...)         tmAcquiredLock(0, 0, __VA_ARGS__)
-# define ProfLockDrop(...)         tmReleasedLock(0, __VA_ARGS__)
-# define ProfColor(color)          tmZoneColorSticky(color)
 #endif
 
 ////////////////////////////////

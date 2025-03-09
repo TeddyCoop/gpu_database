@@ -7,6 +7,8 @@
 #include "gpu/gpu_inc.h"
 #include "application.h"
 
+internal void test_print_database(GDB_Database *database);
+
 #define ProfCodeBegin(name) \
 U64 __prof_start_##name = os_now_microseconds();
 
@@ -65,7 +67,7 @@ test_print_database(GDB_Database *database)
           U64 start = column->offsets[k];
           U64 end = (k + 1 < column->row_count) ? column->offsets[k + 1] : column->variable_capacity;
           U64 length = end - start;
-          String8 str = { .str = column->variable_data + start, .size = length };
+          String8 str = { .str = column->data + start, .size = length };
           /*
           String8 str = {
             .str = column->variable_data + offset,
@@ -107,6 +109,7 @@ test_print_database(GDB_Database *database)
   }
 }
 
+/*
 internal void
 test_one_million_rows_filter(void)
 {
@@ -169,6 +172,7 @@ test_one_million_rows_filter(void)
   
   gdb_database_save(database, str8_lit("data/one_million_rows"));
 }
+*/
 
 internal void
 test_save_database()
@@ -206,6 +210,8 @@ test_load_database()
   gdb_add_database(database);
   test_print_database(database);
 }
+
+/*
 
 internal void
 test_stress()
@@ -264,6 +270,11 @@ test_stress()
   gdb_database_save(database, str8_lit("data/stress_one_million_rows"));
 }
 
+todo:
+
+
+*/
+
 internal void
 entry_point(void)
 {
@@ -276,11 +287,53 @@ entry_point(void)
     }
     ProfCodeEnd(gpu_init);
     
-    String8 sql_query = str8_lit(
-                                 "USE test_2_column;\n"
-                                 "SELECT id, price FROM table WHERE id > 50;"
-                                 );
-    app_execute_query(sql_query);
+    String8 complex_sql_query = str8_lit(
+                                         "CREATE DATABASE retail;"
+                                         "CREATE TABLE customers ("
+                                         "id U32,"
+                                         "name String8,\n"
+                                         "age U32,\n"
+                                         "email String8,\n"
+                                         "balance F64\n"
+                                         ");\n"
+                                         "\n"
+                                         "INSERT INTO customers (id, name, age, email, balance) \n"
+                                         "VALUES \n"
+                                         "(1, 'Alice', 30, 'aliceinawonderland@example123.com', 1023.50),\n"
+                                         "(2, 'Bobdatbuilder', 26, 'bob321@example.com', 204.75),\n"
+                                         "(3, 'Charlie', 40, 'charliecoca@example.com', 1500.00),\n"
+                                         "(4, 'Danny', 65, 'dannybrown@example.com', 190000.00);\n"
+                                         "\n"
+                                         "SELECT name, email \n"
+                                         //"SELECT email \n"
+                                         "FROM customers \n"
+                                         "WHERE age >= 25 AND (balance > 500 OR name = 'Bob') \n"
+                                         //"WHERE age > 25 AND (balance > 1100) \n"
+                                         //"WHERE name = 'Bob' \n"
+                                         "ORDER BY balance DESC;\n"
+                                         "\n"
+                                         "DELETE FROM customers WHERE balance < 100;\n"
+                                         "\n"
+                                         "ALTER TABLE customers ADD COLUMN vip_status U32;\n"
+                                         "\n"
+                                         );
+    String8 test_select_query = str8_lit(
+                                         "SELECT name, email \n"
+                                         "FROM customers \n"
+                                         "WHERE age > 25 AND (balance > 500 OR name = 'Bob') \n"
+                                         );
+    
+    String8 use_retail_query = str8_lit(
+                                        "USE retail;"
+                                        "SELECT name, email \n"
+                                        //"SELECT email \n"
+                                        "FROM customers \n"
+                                        "WHERE age >= 25 AND (balance > 500 OR name = 'Bob') \n"
+                                        );
+    
+    //app_execute_query(complex_sql_query);
+    app_execute_query(use_retail_query);
+    //app_execute_query(test_select_query);
     /*
     */
     

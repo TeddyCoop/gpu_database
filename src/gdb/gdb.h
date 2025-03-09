@@ -31,17 +31,28 @@ offsets - U64*
 */
 
 #define GDB_COLUMN_EXPAND_COUNT 128
+#define GDB_TABLE_EXPAND_FACTOR 2
 
-//typedef enum GDB_ColumnType
 typedef U32 GDB_ColumnType;
 enum
 {
+  GDB_ColumnType_Invalid,
   GDB_ColumnType_U32,
   GDB_ColumnType_U64,
   GDB_ColumnType_F32,
   GDB_ColumnType_F64,
   GDB_ColumnType_String8,
   GDB_ColumnType_COUNT
+};
+
+global U64 g_gdb_column_type_size[GDB_ColumnType_COUNT] = 
+{ 
+  0,
+  sizeof(U32),
+  sizeof(U64),
+  sizeof(F32),
+  sizeof(F64),
+  sizeof(String8),
 };
 
 typedef struct GDB_ColumnSchema GDB_ColumnSchema;
@@ -66,7 +77,6 @@ struct GDB_Column
   
   // tec: data storage
   U8 *data;
-  U8 *variable_data;
   U64 *offsets;
 };
 
@@ -132,5 +142,9 @@ internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);
 internal void gdb_column_release(GDB_Column* column);
 internal void gdb_column_add_data(GDB_Column* column, void* data);
+internal void* gdb_column_get_data(GDB_Column* column, U64 index);
+
+internal GDB_ColumnType gdb_column_type_from_string(String8 str);
+internal GDB_ColumnSchema gdb_column_schema_create(String8 name, GDB_ColumnType type);
 
 #endif //GDB_H

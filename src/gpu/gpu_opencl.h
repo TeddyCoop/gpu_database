@@ -12,13 +12,6 @@ struct GPU_Buffer
   U64 size;
 };
 
-struct GPU_Table
-{
-  GPU_Buffer* columns;
-  U64 column_count;
-  U64 row_count;
-};
-
 struct GPU_Kernel
 {
   String8 name;

@@ -29,10 +29,10 @@ gpu_opencl_build_program(String8 source)
   ret = clBuildProgram(program, 1, &g_opencl_state->device, NULL, NULL, NULL);
   if (ret != CL_SUCCESS)
   {
-    log_error("Failed to build OpenCL program.\n");
+    log_error("failed to build OpenCL program.\n");
     char log[2048];
     clGetProgramBuildInfo(program, g_opencl_state->device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
-    log_error("Build log:\n%s\n", log);
+    log_error("build log:\n%s\n", log);
   }
   
   
@@ -88,7 +88,7 @@ gpu_release(void)
 
 //~ tec: buffer
 internal GPU_Buffer*
-gpu_buffer_alloc(U64 size, GPU_BufferFlags flags)
+gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data)
 {
   GPU_Buffer* buffer = push_array(g_opencl_state->arena, GPU_Buffer, 1);
   
@@ -97,11 +97,11 @@ gpu_buffer_alloc(U64 size, GPU_BufferFlags flags)
   cl_mem_flags cl_flags = gpu_flags_to_opencl_flags(flags);
   
   buffer->size = size;
-  buffer->buffer = clCreateBuffer(g_opencl_state->context, cl_flags, size, NULL, &result);
+  buffer->buffer = clCreateBuffer(g_opencl_state->context, cl_flags, size, data ? data : NULL, &result);
   
   if (result != CL_SUCCESS) 
   {
-    log_error("failed to create buffer");
+    log_error("failed to create buffer, error: %i", result);
   }
   
   return buffer;
@@ -151,6 +151,7 @@ gpu_kernel_alloc(String8 name, String8 src)
   if (ret != CL_SUCCESS) 
   {
     log_error("failed to create kernel \'%s\'", kernel->name.str);
+    return NULL;
   }
   
   return kernel;
@@ -164,22 +165,11 @@ gpu_kernel_release(GPU_Kernel *kernel)
 }
 
 internal void
-gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 global_work_size, U32 local_work_size)
+gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size)
 {
   cl_int err;
   size_t global_size[] = { global_work_size };
   size_t local_size[] = { local_work_size };
-  
-  /*
-  for (U64 i = 0; i < table->column_count; i++)
-  {
-    err = clSetKernelArg(kernel->kernel, i, sizeof(cl_mem), &table->columns[i].buffer);
-    if (err != CL_SUCCESS)
-    {
-      log_error("failed to set argument %llu for kernel (code: %d)", i, err);
-    }
-  }
-  */
   
   ProfCodeBegin(clEnqueueNDRangeKernel);
   {
@@ -217,65 +207,6 @@ gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
   }
 }
 
-//~ tec: table
-internal GPU_Table*
-gpu_table_transfer(GDB_Table* table)
-{
-  GPU_Table *gpu_table = push_array(g_opencl_state->arena, GPU_Table, 1);
-  
-  cl_int err;
-  gpu_table->column_count = table->column_count;
-  gpu_table->row_count = table->row_count;
-  gpu_table->columns = push_array(g_opencl_state->arena, GPU_Buffer, table->column_count);
-  
-  for (U64 i = 0; i < table->column_count; i++)
-  {
-    GDB_Column* column = table->columns[i];
-    
-    // Determine buffer size
-    U64 buffer_size = column->size * column->row_count;
-    if (column->type == GDB_ColumnType_String8)
-    {
-      buffer_size = column->offsets[column->row_count - 1];
-    }
-    
-    gpu_table->columns[i].buffer = clCreateBuffer(g_opencl_state->context,
-                                                  CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-                                                  buffer_size,
-                                                  column->data,
-                                                  &err);
-    
-    if (err != CL_SUCCESS)
-    {
-      printf("Error: Failed to allocate GPU buffer for column %llu (Code: %d)\n", i, err);
-      return NULL;
-    }
-    
-    gpu_table->columns[i].size = buffer_size;
-  }
-  
-  return gpu_table;
-}
-
-internal void
-gpu_table_release(GPU_Table* gpu_table)
-{
-  for (U64 i = 0; i < gpu_table->column_count; i++)
-  {
-    if (gpu_table->columns[i].buffer)
-    {
-      clReleaseMemObject(gpu_table->columns[i].buffer);
-    }
-  }
-  // tec: TODO add to free list
-}
-
-internal GPU_Buffer*
-gpu_table_get_column_buffer(GPU_Table* table, U64 column_index)
-{
-  return &table->columns[column_index];
-}
-
 //~ tec: test
 String8 g_filter_kernel_string = str8_lit_comp(
                                                "__kernel void filter_kernel(__global const ulong *input,\n"
@@ -308,67 +239,45 @@ String8 g_stress_test_kernel_string = str8_lit_comp("__kernel void stress_test(\
                                                     "}\n"
                                                     "}");
 
-internal void
-execute_filter_kernel(GPU_Kernel* kernel, GPU_Table* gpu_table, U64 threshold, GPU_Buffer* result_buffer, GPU_Buffer* result_count)
-{
-  cl_int err = 0;
-  cl_command_queue queue = g_opencl_state->command_queue;
-  
-  // Assume column 0 is the target column
-  cl_mem input_buffer = gpu_table->columns[0].buffer;
-  
-  if (err != CL_SUCCESS) 
-  {
-    printf("Error: Failed to create result count buffer (Code: %d)\n", err);
-    return;
-  }
-  
-  if (!input_buffer || !result_buffer->buffer || !result_count->buffer) {
-    printf("Error: One or more GPU buffers are NULL before execution.\n");
-  }
-  
-  
-  // Set kernel arguments
-  err = clSetKernelArg(kernel->kernel, 0, sizeof(cl_mem), &input_buffer);
-  if (err != CL_SUCCESS)
-  {
-    printf("Error: Failed to set kernel argument 0 (Code: %i)\n", err);
-    return;
-  }
-  
-  err = clSetKernelArg(kernel->kernel, 1, sizeof(cl_mem), &result_buffer->buffer);
-  if (err != CL_SUCCESS)
-  {
-    printf("Error: Failed to set kernel argument 1 (Code: %i)\n", err);
-    return;
-  }
-  
-  err = clSetKernelArg(kernel->kernel, 2, sizeof(cl_ulong), &threshold);
-  if (err != CL_SUCCESS)
-  {
-    printf("Error: Failed to set kernel argument 2 (Code: %i)\n", err);
-    return;
-  }
-  
-  err = clSetKernelArg(kernel->kernel, 3, sizeof(cl_mem), &result_count->buffer);
-  if (err != CL_SUCCESS)
-  {
-    printf("Error: Failed to set kernel argument 3 (Code: %i)\n", err);
-    return;
-  }
-  
-  // Execute kernel
-  size_t global_work_size = gpu_table->row_count;
-  err = clEnqueueNDRangeKernel(queue, kernel->kernel, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
-  if (err != CL_SUCCESS)
-  {
-    printf("Error: Failed to execute filter kernel (Code: %d)\n", err);
-    return;
-  }
-  
-}
 
 //~ tec: kernel generation
+
+/*
+global String8 g_gpu_opencl_str_match_code =
+str8_lit_comp(
+              "int gpu_strcmp(\n"
+              "  __global const char* data, __global const uint* offsets, uint row_index,\n"
+              "  __constant const char* compare_str, int compare_size) {\n"
+              "    uint offset = offsets[row_index];\n"
+              "    for (uint i = 0; i < compare_size; i++) {\n"
+              "      if (data[offset + i] != compare_str[i]) {\n"
+              "        return 0;\n"
+              "      }\n"
+              "    }\n"
+              "\n"
+              "  return 1;\n"
+              "}\n"
+              );
+*/
+global String8 g_gpu_opencl_str_match_code =
+str8_lit_comp(
+              "int gpu_strcmp(\n"
+              "  __global const char* data, __global const ulong* offsets, ulong row_index,\n"
+              "  __constant const char* compare_str, int compare_size) {\n"
+              "    \n"
+              "    ulong start = (row_index == 0) ? 0 : offsets[row_index - 1];\n"
+              "\n"
+              "    for (ulong i = 0; i < compare_size; i++) {\n"
+              "        if ((char)data[start + i] != (char)compare_str[i]) {\n"
+              "            return 0; // Mismatch\n"
+              "        }\n"
+              "    }\n"
+              "\n"
+              "    return 1; // Match\n"
+              "}\n"
+              );
+
+
 internal String8
 gpu_opencl_type_from_column_type(GDB_ColumnType type)
 {
@@ -385,159 +294,139 @@ gpu_opencl_type_from_column_type(GDB_ColumnType type)
   return str8_lit("invalid");
 }
 
-internal void generate_condition_code(Arena *arena, IR_Node *node, String8List *builder) {
-  if (!node) return;
+internal void
+gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition)
+{
+  if (!condition) return;
   
-  if (node->type == IR_NodeType_Operator)
+  if (condition->type == IR_NodeType_Operator)
   {
-    str8_list_push(arena, builder, str8_lit("("));
-    generate_condition_code(arena, node->left, builder);
-    str8_list_push(arena, builder, str8_lit(" "));
-    str8_list_push(arena, builder, node->value);
-    str8_list_push(arena, builder, str8_lit(" "));
-    generate_condition_code(arena, node->right, builder);
-    str8_list_push(arena, builder, str8_lit(")"));
-  } 
-  else if (node->type == IR_NodeType_Column) 
-  {
-    // Translate column to input buffer reference
-    //String8 column_buffer = get_column_buffer_index(node);  // Function to get buffer index as a String8
-    String8 format = push_str8f(arena, "input_buffer_%.*s[id]", node->value.size, node->value.str);
-    //String8 format = push_str8f(arena, "input_buffer_something[id]");
-    str8_list_push(arena, builder, format);
+    IR_Node* left = condition->first;
+    IR_Node* right = left ? left->next : 0;
+    
+    if (str8_match(condition->value, str8_lit("and"), StringMatchFlag_CaseInsensitive))
+    {
+      str8_list_push(arena, builder, str8_lit("("));
+      gpu_opencl_generate_where(arena, builder, left);
+      str8_list_push(arena, builder, str8_lit(" && "));
+      gpu_opencl_generate_where(arena, builder, right);
+      str8_list_push(arena, builder, str8_lit(")"));
+    }
+    else if (str8_match(condition->value, str8_lit("or"), StringMatchFlag_CaseInsensitive))
+    {
+      str8_list_push(arena, builder, str8_lit("("));
+      gpu_opencl_generate_where(arena, builder, left);
+      str8_list_push(arena, builder, str8_lit(" || "));
+      gpu_opencl_generate_where(arena, builder, right);
+      str8_list_push(arena, builder, str8_lit(")"));
+    }
+    else
+    {
+      if (right->type == IR_NodeType_Literal)
+      {
+        if (str8_match(condition->value, str8_lit("="), 0))
+        {
+          str8_list_pushf(arena, builder, "gpu_strcmp(%.*s_data, %.*s_offsets, i, \"%.*s\", %llu)",
+                          (int)left->value.size, left->value.str,
+                          (int)left->value.size, left->value.str,
+                          (int)right->value.size, right->value.str,
+                          right->value.size);
+        }
+        else
+        {
+          str8_list_pushf(arena, builder, "%.*s[i] ", (int)left->value.size, left->value.str);
+          str8_list_pushf(arena, builder, "%.*s", (int)condition->value.size, condition->value.str);
+          str8_list_pushf(arena, builder, " \"%.*s\"", (int)right->value.size, right->value.str);
+        }
+      }
+      else
+      {
+        str8_list_pushf(arena, builder, "%.*s[i] %.*s %.*s", 
+                        (int)left->value.size, left->value.str,
+                        (int)condition->value.size, condition->value.str,
+                        (int)right->value.size, right->value.str);
+      }
+    }
   }
-  else if (node->type == IR_NodeType_Literal)
+  else if (condition->type == IR_NodeType_Column)
   {
-    // Add literal value
-    str8_list_push(arena, builder, node->value);
-  } 
-  else if (node->type == IR_NodeType_Condition)
+    str8_list_pushf(arena, builder, "%.*s[i]", (int)condition->value.size, condition->value.str);
+  }
+  else if (condition->type == IR_NodeType_Literal)
   {
-    generate_condition_code(arena, node->left, builder);
+    str8_list_pushf(arena, builder, "\"%.*s\"", (int)condition->value.size, condition->value.str);
   }
 }
 
-/*
 internal String8
-gpu_generate_kernel_from_ir(Arena* arena, IR_Query* query, GDB_Column** selected_columns)
+gpu_generate_kernel_from_ir(Arena* arena, GDB_Database* database, IR_Node* select_ir_node, String8List* active_columns)
 {
   String8List builder = { 0 };
   
-  str8_list_push(arena, &builder, str8_lit("__kernel void query("));
-  
-  IR_Node *column = query->select_columns;
-  U32 column_index = 0;
-  while (column)
+  IR_Node* table_node = ir_node_find_child(select_ir_node, IR_NodeType_Table);
+  if (!table_node)
   {
-    str8_list_push(arena, &builder, str8_lit("__global "));
-    str8_list_push(arena, &builder, gpu_opencl_type_from_column_type(selected_columns[column_index]->type));
-    //str8_list_pushf(arena, &builder, "input_buffer_%u", column_index);
-    str8_list_pushf(arena, &builder, "* input_buffer_%.*s", column->value.size, column->value.str);
-    
-    if (column->next || query->where_conditions) 
+    log_error("'select' statement is missing a table");
+    return str8_lit("");
+  }
+  
+  str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
+  str8_list_push(arena, &builder, str8_lit("\n"));
+  str8_list_push(arena, &builder, str8_lit("__kernel void query(\n"));
+  
+  for (String8Node* node = active_columns->first; node != NULL; node = node->next)
+  {
+    String8 str = node->string;
+    GDB_ColumnType column_type = ir_find_column_type(database, select_ir_node, str);
+    String8 type_string = gpu_opencl_type_from_column_type(column_type);
+    if (column_type == GDB_ColumnType_String8)
     {
-      str8_list_push(arena, &builder, str8_lit(", "));
+      str8_list_pushf(arena, &builder, 
+                      "__global const %.*s* %.*s_data,\n", 
+                      (int)type_string.size, type_string.str,
+                      (int)str.size, str.str);
+      str8_list_pushf(arena, &builder, 
+                      "__global const ulong* %.*s_offsets,\n",
+                      (int)str.size, str.str);
     }
-    
-    column = column->next;
-    column_index++;
+    else
+    {
+      str8_list_pushf(arena, &builder, 
+                      "__global const %.*s* %.*s,\n", 
+                      (int)type_string.size, type_string.str,
+                      (int)str.size, str.str);
+    }
   }
   
-  str8_list_push(arena, &builder, str8_lit("__global uint *output_buffer"));
-  //str8_list_push(arena, &builder, str8_lit("__global uint *output_buffer, "));
-  //str8_list_push(arena, &builder, str8_lit("const ulong input_buffer_size"));
+  // Extract WHERE clause
+  IR_Node* where_clause = ir_node_find_child(select_ir_node, IR_NodeType_Where);
   
-  str8_list_push(arena, &builder, str8_lit(") {\n"));
+  str8_list_push(arena, &builder, str8_lit("__global ulong* output_indices,\n"));
+  str8_list_push(arena, &builder, str8_lit("ulong row_count) {\n"));
   
-  str8_list_push(arena, &builder, str8_lit("    ulong id = get_global_id(0);\n"));
-  //str8_list_push(arena, &builder, str8_lit("    if (id >= input_buffer_size) return;\n"));
+  str8_list_push(arena, &builder, str8_lit("  ulong i = get_global_id(0);\n"));
+  //str8_list_push(arena, &builder, str8_lit("ulong offset = name_offsets[i];\n printf(\"Offset: %i, First Char: %c\\n\", offset, name_data[offset]);\n"));
+  //str8_list_push(arena, &builder, str8_lit("    printf(\"Thread %lu: Offset = %lu, First Char = %c\\n\", i, offset, name_data[offset]);\n"));
+  str8_list_push(arena, &builder, str8_lit("  if (i >= row_count) return;\n"));
   
-  if (query->where_conditions)
+  
+  if (where_clause)
   {
-    str8_list_push(arena, &builder, str8_lit("    if (!"));
-    generate_condition_code(arena, query->where_conditions, &builder);
-    str8_list_push(arena, &builder, str8_lit(") return;\n"));
+    str8_list_push(arena, &builder, str8_lit("  if ("));
+    gpu_opencl_generate_where(arena, &builder, where_clause->first);
+    str8_list_push(arena, &builder, str8_lit(") {\n"));
+    str8_list_push(arena, &builder, str8_lit("    output_indices[i] = 1;\n"));
+    str8_list_push(arena, &builder, str8_lit("  } else {\n"));
+    str8_list_push(arena, &builder, str8_lit("    output_indices[i] = 0;\n"));
+    str8_list_push(arena, &builder, str8_lit("  }\n"));
   }
-  
-  str8_list_push(arena, &builder, str8_lit("    // Output selected columns\n"));
-  column = query->select_columns;
-  column_index = 0;
-  while (column)
+  else
   {
-    str8_list_pushf(arena, &builder, "    output_buffer[id * %u + %u] = input_buffer_%.*s[id];\n",
-                    query->select_column_count, column_index, column->value.size, column->value.str);
-    column = column->next;
-    column_index++;
+    str8_list_push(arena, &builder, str8_lit("  output_indices[i] = 1;\n"));
   }
   
   str8_list_push(arena, &builder, str8_lit("}\n"));
   
-  return str8_list_join(arena, &builder, NULL);
-}
-*/
-
-internal String8
-gpu_generate_kernel_from_ir(Arena* arena, IR_Query* query, GDB_Column** selected_columns)
-{
-  String8List builder = { 0 };
-  
-  // Kernel header
-  str8_list_push(arena, &builder, str8_lit("__kernel void query("));
-  
-  // Input buffers for selected columns
-  IR_Node* column = query->select_columns;
-  U32 column_index = 0;
-  while (column)
-  {
-    str8_list_push(arena, &builder, str8_lit("__global "));
-    str8_list_push(arena, &builder, gpu_opencl_type_from_column_type(selected_columns[column_index]->type));
-    str8_list_pushf(arena, &builder, "* input_buffer_%.*s", column->value.size, column->value.str);
-    
-    if (column->next || query->where_conditions || 1) // Ensure proper separation
-    {
-      str8_list_push(arena, &builder, str8_lit(", "));
-    }
-    
-    column = column->next;
-    column_index++;
-  }
-  
-  // Output buffer and result count
-  str8_list_push(arena, &builder, str8_lit("__global ulong* output_buffer, "));
-  str8_list_push(arena, &builder, str8_lit("__global ulong* result_count, "));
-  str8_list_push(arena, &builder, str8_lit("const ulong input_buffer_size"));
-  
-  // Begin kernel body
-  str8_list_push(arena, &builder, str8_lit(") {\n"));
-  str8_list_push(arena, &builder, str8_lit("    ulong id = get_global_id(0);\n"));
-  str8_list_push(arena, &builder, str8_lit("    if (id >= input_buffer_size) return;\n"));
-  
-  // Initialize WHERE clause filtering
-  if (query->where_conditions)
-  {
-    str8_list_push(arena, &builder, str8_lit("    if (!("));
-    generate_condition_code(arena, query->where_conditions, &builder);
-    str8_list_push(arena, &builder, str8_lit(")) return;\n"));
-  }
-  
-  // Atomic increment to determine output index
-  str8_list_push(arena, &builder, str8_lit("    ulong output_index = atomic_add(result_count, 1);\n"));
-  
-  // Write selected columns to output buffer
-  column = query->select_columns;
-  column_index = 0;
-  while (column)
-  {
-    str8_list_pushf(arena, &builder,
-                    "    output_buffer[output_index * %u + %u] = input_buffer_%.*s[id];\n",
-                    query->select_column_count, column_index, column->value.size, column->value.str);
-    
-    column = column->next;
-    column_index++;
-  }
-  
-  // End kernel body
-  str8_list_push(arena, &builder, str8_lit("}\n"));
   
   return str8_list_join(arena, &builder, NULL);
 }

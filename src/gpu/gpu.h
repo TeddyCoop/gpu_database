@@ -18,24 +18,20 @@ typedef enum GPU_BufferFlags
 
 typedef struct GPU_State GPU_State;
 typedef struct GPU_Buffer GPU_Buffer;
-typedef struct GPU_Table GPU_Table;
 typedef struct GPU_Kernel GPU_Kernel;
 
 internal void gpu_init(void);
 internal void gpu_release(void);
 
-internal GPU_Buffer* gpu_buffer_alloc(U64 size, GPU_BufferFlags flags);
+internal GPU_Buffer* gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data);
 internal void gpu_buffer_release(GPU_Buffer* buffer);
 internal void gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size);
 internal void gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size);
 
 internal GPU_Kernel* gpu_kernel_alloc(String8 name, String8 src);
 internal void gpu_kernel_release(GPU_Kernel *kernel);
-internal void gpu_kernel_execute(GPU_Kernel* kernel, GPU_Table* table, U32 global_work_size, U32 local_work_size);
+internal void gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size);
 
-internal GPU_Table* gpu_table_transfer(GDB_Table* table);
-internal void gpu_table_release(GPU_Table* table);
-
-internal String8 gpu_generate_kernel_from_ir(Arena* arena, IR_Query* ir_query, GDB_Column** selected_columns);
+internal String8 gpu_generate_kernel_from_ir(Arena* arena, GDB_Database* database, IR_Node* ir_select_node, String8List* active_columns);
 
 #endif //GPU_H

@@ -1,164 +1,189 @@
-internal IR_Query*
-ir_generate_from_ast(Arena* arena, SQL_Node* ast_root)
-{
-  if (!ast_root || ast_root->type != SQL_NodeType_Use) 
-  {
-    log_error("Invalid AST root node. Expected USE node.");
-    return NULL;
-  }
-  
-  IR_Query *ir_query = push_array(arena, IR_Query, 1);
-  ir_query->select_columns = NULL;
-  ir_query->from_table = NULL;
-  ir_query->where_conditions = NULL;
-  ir_query->select_column_count = 0;
-  
-  SQL_Node *use_node = ast_root;
-  if (!use_node->first || use_node->type != SQL_NodeType_Use) 
-  {
-    log_error("Invalid USE clause. Expected a database name.");
-    return NULL;
-  }
-  
-  IR_Node *ir_use = push_array(arena, IR_Node, 1);
-  ir_use->type = IR_NodeType_Database;
-  ir_use->value = use_node->first->value;
-  ir_use->left = NULL;
-  ir_use->right = NULL;
-  ir_use->next = NULL;
-  
-  ir_query->database = ir_use;
-  
-  SQL_Node *select_node = use_node->next;
-  if (!select_node || select_node->type != SQL_NodeType_Select)
-  {
-    log_error("Expected SELECT clause after USE clause.");
-    return NULL;
-  }
-  
-  SQL_Node *current_child = select_node->first;
-  IR_Node *ir_select_head = NULL;
-  IR_Node *ir_select_tail = NULL;
-  
-  while (current_child && current_child->type == SQL_NodeType_Column) 
-  {
-    IR_Node *ir_column = push_array(arena, IR_Node, 1);
-    ir_column->type = IR_NodeType_Column;
-    ir_column->value = current_child->value;
-    ir_column->left = NULL;
-    ir_column->right = NULL;
-    ir_column->next = NULL;
-    
-    if (!ir_select_head) 
-    {
-      ir_select_head = ir_select_tail = ir_column;
-    }
-    else 
-    {
-      ir_select_tail->next = ir_column;
-      ir_select_tail = ir_column;
-    }
-    
-    current_child = current_child->next;
-    ir_query->select_column_count += 1;
-  }
-  
-  ir_query->select_columns = ir_select_head;
-  
-  SQL_Node *current_sibling = select_node->next;
-  
-  while (current_sibling)
-  {
-    if (current_sibling->type == SQL_NodeType_Table)
-    {
-      IR_Node *ir_table = push_array(arena, IR_Node, 1);
-      ir_table->type = IR_NodeType_Table;
-      ir_table->value = current_sibling->value;
-      ir_table->left = NULL;
-      ir_table->right = NULL;
-      ir_table->next = NULL;
-      
-      ir_query->from_table = ir_table;
-    } 
-    else if (current_sibling->type == SQL_NodeType_Operator)
-    {
-      IR_Node *ir_where = push_array(arena, IR_Node, 1);
-      ir_where->type = IR_NodeType_Condition;
-      ir_where->value = str8_lit("");
-      ir_where->left = NULL;
-      ir_where->right = NULL;
-      ir_where->next = NULL;
-      
-      IR_Node *condition_root = ir_convert_expression(arena, current_sibling);
-      if (!condition_root) 
-      {
-        log_error("Failed to convert WHERE clause to IR.");
-        return NULL;
-      }
-      
-      ir_where->left = condition_root;
-      ir_query->where_conditions = ir_where;
-    }
-    
-    current_sibling = current_sibling->next;
-  }
-  
-  return ir_query;
-}
-
 internal IR_Node*
-ir_convert_expression(Arena* arena, SQL_Node *ast_expr) 
+ir_generate_recursive(Arena* arena, SQL_Node* sql_node)
 {
-  if (!ast_expr) return NULL;
+  if (!sql_node) return NULL;
   
   IR_Node *ir_node = push_array(arena, IR_Node, 1);
-  ir_node->type = (ast_expr->type == SQL_NodeType_Column) ? IR_NodeType_Column :
-  (ast_expr->type == SQL_NodeType_Literal) ? IR_NodeType_Literal :
-  (ast_expr->type == SQL_NodeType_Operator) ? IR_NodeType_Operator : IR_NodeType_Condition;
-  ir_node->value = ast_expr->value;
-  ir_node->next = NULL;
-  ir_node->left = NULL;
-  ir_node->right = NULL;
+  ir_node->type = ir_type_from_sql_node_type(sql_node->type);
+  ir_node->value = sql_node->value;
   
-  if (ast_expr->first)
+  IR_Node **ir_child_next = &ir_node->first;
+  for (SQL_Node *child = sql_node->first; child; child = child->next)
   {
-    ir_node->left = ir_convert_expression(arena, ast_expr->first);
-    if (ast_expr->first->next)
-    {
-      ir_node->right = ir_convert_expression(arena, ast_expr->first->next);
-    }
+    *ir_child_next = ir_generate_recursive(arena, child);
+    ir_child_next = &((*ir_child_next)->next);
   }
   
   return ir_node;
 }
+
+internal IR_Query*
+ir_generate_from_ast(Arena* arena, SQL_Node* ast_root)
+{
+  IR_Query *ir_query = push_array(arena, IR_Query, 1);
+  
+  IR_Node **ir_node_next = &ir_query->execution_nodes;
+  
+  for (SQL_Node *node = ast_root; node; node = node->next)
+  {
+    IR_Node *ir_node = ir_generate_recursive(arena, node);
+    
+    *ir_node_next = ir_node;
+    ir_node_next = &ir_node->next;
+    ir_query->count++;
+  }
+  return ir_query;
+}
+
+internal IR_NodeType
+ir_type_from_sql_node_type(SQL_NodeType sql_type)
+{
+  switch (sql_type)
+  {
+    case SQL_NodeType_Use:           return IR_NodeType_Use;
+    case SQL_NodeType_Select:        return IR_NodeType_Select;
+    case SQL_NodeType_Column:        return IR_NodeType_Column;
+    case SQL_NodeType_Table:         return IR_NodeType_Table;
+    case SQL_NodeType_Where:         return IR_NodeType_Where;
+    case SQL_NodeType_Create:        return IR_NodeType_Create;
+    case SQL_NodeType_Operator:      return IR_NodeType_Operator;
+    case SQL_NodeType_Literal:       return IR_NodeType_Literal;
+    case SQL_NodeType_Numeric:       return IR_NodeType_Numeric;
+    case SQL_NodeType_OrderBy:       return IR_NodeType_OrderBy;
+    case SQL_NodeType_Ascending:     return IR_NodeType_Ascending;
+    case SQL_NodeType_Descending:    return IR_NodeType_Descending;
+    case SQL_NodeType_Insert:        return IR_NodeType_Insert;
+    case SQL_NodeType_Value:         return IR_NodeType_Value;
+    case SQL_NodeType_ValueGroup:    return IR_NodeType_ValueGroup;
+    case SQL_NodeType_ColumnList:    return IR_NodeType_ColumnList; 
+    case SQL_NodeType_Delete:        return IR_NodeType_Delete;
+    case SQL_NodeType_Alter:         return IR_NodeType_Alter;
+    case SQL_NodeType_Alter_AddColumn: return IR_NodeType_AddColumn;
+    case SQL_NodeType_Alter_ColumnType: return IR_NodeType_Type;
+    case SQL_NodeType_Alter_DropColumn: return IR_NodeType_DropColumn;
+    case SQL_NodeType_Alter_Rename:  return IR_NodeType_Rename;
+    case SQL_NodeType_Database:      return IR_NodeType_Database;
+    
+    // Special cases
+    case SQL_NodeType_Row:           return IR_NodeType_ValueGroup;
+    case SQL_NodeType_Type:          return IR_NodeType_Type;
+    
+    // Nodes that may not have a direct IR mapping:     
+    case SQL_NodeType_Drop:  
+    return IR_NodeType_Condition; // Placeholder, modify as needed
+    
+    default:
+    return IR_NodeType_Condition; // Fallback for unknown types
+  }
+}
+
+internal String8
+ir_node_type_to_string(IR_NodeType type)
+{
+  String8 result = str8_lit("no type");
+  
+  switch (type)
+  {
+    case IR_NodeType_Use: result = str8_lit("IR_NodeType_Use"); break;
+    case IR_NodeType_Select: result = str8_lit("IR_NodeType_Select"); break;
+    case IR_NodeType_Column: result = str8_lit("IR_NodeType_Column"); break;
+    case IR_NodeType_Table: result = str8_lit("IR_NodeType_Table"); break;
+    case IR_NodeType_Database: result = str8_lit("IR_NodeType_Database"); break;
+    case IR_NodeType_Where: result = str8_lit("IR_NodeType_Where"); break;
+    case IR_NodeType_Create: result = str8_lit("IR_NodeType_Create"); break;
+    case IR_NodeType_Condition: result = str8_lit("IR_NodeType_Condition"); break;
+    case IR_NodeType_Operator: result = str8_lit("IR_NodeType_Operator"); break;
+    case IR_NodeType_Numeric: result = str8_lit("IR_NodeType_Numeric"); break;
+    case IR_NodeType_Literal: result = str8_lit("IR_NodeType_Literal"); break;
+    case IR_NodeType_OrderBy: result = str8_lit("IR_NodeType_OrderBy"); break;
+    case IR_NodeType_Ascending: result = str8_lit("IR_NodeType_Ascending"); break;
+    case IR_NodeType_Descending: result = str8_lit("IR_NodeType_Descending"); break;
+    case IR_NodeType_Insert: result = str8_lit("IR_NodeType_Insert"); break;
+    case IR_NodeType_Value: result = str8_lit("IR_NodeType_Value"); break;
+    case IR_NodeType_ValueGroup: result = str8_lit("IR_NodeType_ValueGroup"); break;
+    case IR_NodeType_ColumnList: result = str8_lit("IR_NodeType_ColumnList"); break;
+    case IR_NodeType_Delete: result = str8_lit("IR_NodeType_Delete"); break;
+    case IR_NodeType_Alter: result = str8_lit("IR_NodeType_Alter"); break;
+    case IR_NodeType_AddColumn: result = str8_lit("IR_NodeType_AddColumn"); break;
+    case IR_NodeType_Type: result = str8_lit("IR_NodeType_Type"); break;
+  }
+  
+  return result;
+}
+
+internal IR_Node*
+ir_node_find_child(IR_Node* parent, IR_NodeType type)
+{
+  if (!parent) return NULL;
+  
+  for (IR_Node* child = parent->first; child != NULL; child = child->next)
+  {
+    if (child->type == type)
+    {
+      return child;
+    }
+  }
+  
+  return NULL;
+}
+
+internal GDB_ColumnType
+ir_find_column_type(GDB_Database* database, IR_Node* select_ir_node, String8 column_name)
+{
+  IR_Node* table_node = ir_node_find_child(select_ir_node, IR_NodeType_Table);
+  if (!table_node) return GDB_ColumnType_Invalid;
+  
+  GDB_Table* table = gdb_database_find_table(database, table_node->value);
+  if (!table) return GDB_ColumnType_Invalid;
+  
+  GDB_Column* column = gdb_table_find_column(table, column_name);
+  if (!column) return GDB_ColumnType_Invalid;
+  
+  return column->type;
+}
+
+internal void
+ir_create_active_column_list(Arena* arena, IR_Node* parent_node, String8List* used_columns)
+{
+  if (!parent_node) return;
+  
+  if (parent_node->type == IR_NodeType_Column)
+  {
+    B32 exists = 0;
+    for (String8Node* node = used_columns->first; node != NULL; node = node->next)
+    {
+      if (str8_match(node->string, parent_node->value, 0))
+      {
+        exists = 1;
+      }
+    }
+    
+    if (!exists)
+    {
+      str8_list_push(arena, used_columns, parent_node->value);
+    }
+  }
+  
+  for (IR_Node* child = parent_node->first; child != NULL; child = child->next)
+  {
+    ir_create_active_column_list(arena, child, used_columns);
+  }
+}
+
 
 internal void
 ir_print_node(IR_Node *node, U64 depth)
 {
   if (!node) return;
   
-  for (U64 i = 0; i < depth; i++) printf("  ");
-  
-  printf("IR_Node: type=%d, value=%.*s\n",
-         node->type,
-         (int)node->value.size, node->value.str);
-  
-  if (node->left) 
+  while (node)
   {
-    for (U64 i = 0; i < depth; i++) printf("  ");
-    printf("Left:\n");
-    ir_print_node(node->left, depth + 1);
-  }
-  if (node->right)
-  {
-    for (U64 i = 0; i < depth; i++) printf("  ");
-    printf("Right:\n");
-    ir_print_node(node->right, depth + 1);
-  }
-  
-  if (node->next) 
-  {
-    ir_print_node(node->next, depth);
+    for (int i = 0; i < depth; i++) printf("  ");
+    String8 type = ir_node_type_to_string(node->type);
+    printf("- [%.*s] %.*s\n", (int)type.size, type.str, (int)node->value.size, node->value.str);
+    
+    if (node->first) ir_print_node(node->first, depth + 1); 
+    node = node->next;
   }
 }
 
@@ -166,37 +191,5 @@ internal void
 ir_print_query(IR_Query *query)
 {
   printf("IR Query:\n");
-  
-  printf("Use database:\n");
-  if (query->database) 
-  {
-    ir_print_node(query->database, 1);
-  }
-  else
-  {
-    printf("  None\n");
-  }
-  
-  printf("Select Columns:\n");
-  ir_print_node(query->select_columns, 1);
-  
-  printf("From Table:\n");
-  if (query->from_table)
-  {
-    ir_print_node(query->from_table, 1);
-  }
-  else
-  {
-    printf("  None\n");
-  }
-  
-  printf("Where Conditions:\n");
-  if (query->where_conditions)
-  {
-    ir_print_node(query->where_conditions, 1);
-  } 
-  else
-  {
-    printf("  None\n");
-  }
+  ir_print_node(query->execution_nodes, 1);
 }
