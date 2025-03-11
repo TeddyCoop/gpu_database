@@ -326,7 +326,6 @@ entry_point(void)
     String8 use_retail_query = str8_lit(
                                         "USE retail;"
                                         "SELECT name, email \n"
-                                        //"SELECT email \n"
                                         "FROM customers \n"
                                         "WHERE age >= 25 AND (balance > 500 OR name = 'Bob') \n"
                                         );

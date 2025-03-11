@@ -30,7 +30,7 @@ offsets - U64*
 
 */
 
-#define GDB_COLUMN_EXPAND_COUNT 128
+#define GDB_COLUMN_EXPAND_COUNT 64
 #define GDB_TABLE_EXPAND_FACTOR 2
 
 typedef U32 GDB_ColumnType;
@@ -90,11 +90,6 @@ struct GDB_Table
   U64 column_capacity;
   U64 row_count;
   GDB_Column** columns;
-  
-  // tec: memory mapped
-  OS_Handle file;
-  OS_Handle map;
-  void* mapped_ptr;
 };
 
 typedef struct GDB_Database GDB_Database;

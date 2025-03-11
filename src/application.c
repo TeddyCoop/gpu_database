@@ -29,6 +29,7 @@ app_execute_query(String8 sql_query)
           String8 database_path = push_str8f(arena, "data/%.*s", (U32)use_object->value.size, use_object->value.str);
           database = gdb_database_load(database_path);
           gdb_add_database(database);
+          test_print_database(database);
         }
       } break;
       
@@ -281,8 +282,8 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
-  //gdb_database_save(database, database_filepath);
+  String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
+  gdb_database_save(database, database_filepath);
   
   arena_release(arena);
 }
