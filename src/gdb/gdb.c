@@ -231,6 +231,23 @@ gdb_table_add_row(GDB_Table* table, void** row_data)
   table->row_count++;
 }
 
+internal void
+gdb_table_remove_row(GDB_Table* table, U64 row_index)
+{
+  if (row_index >= table->row_count)
+  {
+    log_error("row index out of bounds: %llu", row_index);
+    return;
+  }
+  
+  for (U64 i = 0; i < table->column_count; ++i)
+  {
+    gdb_column_remove_data(table->columns[i], row_index);
+  }
+  
+  table->row_count--;
+}
+
 internal B32
 gdb_table_save(GDB_Table* table, String8 path)
 {
@@ -407,8 +424,6 @@ gdb_column_add_data(GDB_Column* column, void* data)
   {
     String8* str = (String8*)data;
     
-    //log_error("%.*s", (int)str->size, str->str);
-    
     //- tec: grow offsets array if needed
     if (column->row_count == column->capacity)
     {
@@ -491,11 +506,43 @@ gdb_column_add_data(GDB_Column* column, void* data)
   column->row_count++;
 }
 
+internal void
+gdb_column_remove_data(GDB_Column* column, U64 row_index)
+{
+  if (row_index >= column->row_count)
+  {
+    log_error("column row index out of bounds: %llu", row_index);
+    return;
+  }
+  
+  if (column->type == GDB_ColumnType_String8)
+  {
+    U64 start_offset = column->offsets[row_index];
+    U64 end_offset = column->offsets[row_index + 1];
+    U64 size_to_move = column->variable_capacity - end_offset;
+    
+    MemoryCopy(column->data + start_offset, column->data + end_offset, size_to_move);
+    
+    for (U64 i = row_index + 1; i < column->row_count; ++i)
+    {
+      column->offsets[i] = column->offsets[i + 1] - (end_offset - start_offset);
+    }
+  }
+  else
+  {
+    U64 size_to_move = (column->row_count - row_index - 1) * column->size;
+    MemoryCopy(column->data + row_index * column->size, column->data + (row_index + 1) * column->size, size_to_move);
+  }
+  
+  column->row_count--;
+}
+
 internal void*
 gdb_column_get_data(GDB_Column* column, U64 index)
 {
   if (column->type == GDB_ColumnType_String8)
   {
+    
   }
   else
   {

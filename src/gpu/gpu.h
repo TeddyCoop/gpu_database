@@ -32,6 +32,6 @@ internal GPU_Kernel* gpu_kernel_alloc(String8 name, String8 src);
 internal void gpu_kernel_release(GPU_Kernel *kernel);
 internal void gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size);
 
-internal String8 gpu_generate_kernel_from_ir(Arena* arena, GDB_Database* database, IR_Node* ir_select_node, String8List* active_columns);
+internal String8 gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* ir_select_node, String8List* active_columns);
 
 #endif //GPU_H

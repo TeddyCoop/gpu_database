@@ -130,6 +130,7 @@ internal GDB_Table* gdb_table_alloc(String8 name);
 internal void gdb_table_release(GDB_Table* table);
 internal void gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema);
 internal void gdb_table_add_row(GDB_Table* table, void** row_data);
+internal void gdb_table_remove_row(GDB_Table* table, U64 row_index);
 internal B32 gdb_table_save(GDB_Table* table, String8 path);
 internal GDB_Table* gdb_table_load(String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
@@ -137,6 +138,7 @@ internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);
 internal void gdb_column_release(GDB_Column* column);
 internal void gdb_column_add_data(GDB_Column* column, void* data);
+internal void gdb_column_remove_data(GDB_Column* column, U64 row_index);
 internal void* gdb_column_get_data(GDB_Column* column, U64 index);
 
 internal GDB_ColumnType gdb_column_type_from_string(String8 str);

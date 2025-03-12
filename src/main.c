@@ -109,172 +109,6 @@ test_print_database(GDB_Database *database)
   }
 }
 
-/*
-internal void
-test_one_million_rows_filter(void)
-{
-  GDB_Database* database = gdb_database_alloc(str8_lit("database"));
-  gdb_add_database(database);
-  
-  GDB_ColumnSchema schemas[] = 
-  {
-    { str8_lit("id"), GDB_ColumnType_U64, sizeof(U64) },
-  };
-  
-  GDB_Table* table = gdb_table_alloc(str8_lit("table"));
-  gdb_table_add_column(table, schemas[0]);
-  gdb_database_add_table(database, table);
-  
-  srand(42);
-  const U64 row_count = Million(1);
-  //const U64 row_count = 10;
-  
-  for (U64 i = 0; i < row_count; i++)
-  {
-    U64 value = (U64)(rand() % 100 + 1);
-    void* row_data[] = { &value };
-    gdb_table_add_row(table, row_data);
-  }
-  
-  printf("Original Table Data:\n");
-  for (U64 i = 0; i < row_count; i++)
-  {
-    //printf("%u ", ((U32*)table->columns[0]->data)[i]);
-  }
-  printf("\n");
-  
-  GPU_Table* gpu_table = gpu_table_transfer(table);
-  GPU_Kernel* kernel = gpu_kernel_alloc(str8_lit("filter_kernel"), g_filter_kernel_string);
-  
-  GPU_Buffer* result_buffer = gpu_buffer_alloc(row_count * sizeof(U64), GPU_BufferFlag_ReadWrite);
-  GPU_Buffer* result_count = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadWrite);
-  
-  U64 threshold = 50;
-  ProfCodeBegin(execute_filter_kernel);
-  {
-    execute_filter_kernel(kernel, gpu_table, threshold, result_buffer, result_count);
-  }
-  ProfCodeEnd(execute_filter_kernel);
-  
-  U64* filtered_results = push_array(g_gdb_state->arena, U64, row_count);
-  gpu_buffer_read(result_buffer, filtered_results, row_count * sizeof(U64));
-  
-  U64 filtered_count = 0;
-  gpu_buffer_read(result_count, &filtered_count, sizeof(U64));
-  
-  printf("Filtered Values (>= %llu):\n", threshold);
-  for (U64 i = 0; i < filtered_count; i++)
-  {
-    //printf("%llu ", filtered_results[i]);
-  }
-  printf("\n");
-  
-  
-  gdb_database_save(database, str8_lit("data/one_million_rows"));
-}
-*/
-
-internal void
-test_save_database()
-{
-  GDB_Database* database = gdb_database_alloc(str8_lit("database"));
-  gdb_add_database(database);
-  
-  GDB_ColumnSchema schemas[] = 
-  {
-    { str8_lit("name"), GDB_ColumnType_String8, 0 },
-  };
-  
-  GDB_Table* table = gdb_table_alloc(str8_lit("table"));
-  gdb_table_add_column(table, schemas[0]);
-  gdb_database_add_table(database, table);
-  
-  const U64 row_count = 10;
-  
-  for (U64 i = 0; i < row_count; i++)
-  {
-    String8 value = push_str8f(g_gdb_state->arena, "name%llu", i);
-    void* row_data[] = { &value };
-    gdb_table_add_row(table, row_data);
-  }
-  
-  //test_print_database(database);
-  
-  gdb_database_save(database, str8_lit("data/test_database"));
-}
-
-internal void
-test_load_database()
-{
-  GDB_Database* database = gdb_database_load(str8_lit("data/test_database/"));
-  gdb_add_database(database);
-  test_print_database(database);
-}
-
-/*
-
-internal void
-test_stress()
-{
-  GDB_Database* database = gdb_database_alloc(str8_lit("stress database"));
-  gdb_add_database(database);
-  
-  GDB_ColumnSchema id_schema = (GDB_ColumnSchema){ str8_lit("id"), GDB_ColumnType_U64, sizeof(U64) };
-  GDB_ColumnSchema price_schema = (GDB_ColumnSchema){ str8_lit("price"), GDB_ColumnType_F64, sizeof(F64) };
-  
-  GDB_Table* table = gdb_table_alloc(str8_lit("table"));
-  gdb_table_add_column(table, id_schema);
-  gdb_table_add_column(table, price_schema);
-  gdb_database_add_table(database, table);
-  
-  srand(42);
-  const U64 row_count = Million(1);
-  //const U64 row_count = 50;
-  
-  for (U64 i = 0; i < row_count; i++)
-  {
-    U64 u64_value = (U64)(rand() % 1000);
-    F64 f64_value = (F64)(rand() % 1000) * 0.61f;
-    void* row_data[] = { &u64_value, &f64_value };
-    gdb_table_add_row(table, row_data);
-  }
-  
-  GPU_Table* gpu_table = gpu_table_transfer(table);
-  GPU_Kernel* kernel = gpu_kernel_alloc(str8_lit("stress_test"), g_stress_test_kernel_string);
-  
-  GPU_Buffer* result_buffer = gpu_buffer_alloc(row_count * sizeof(U64), GPU_BufferFlag_ReadWrite);
-  GPU_Buffer* result_count = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadWrite);
-  U64 threshold = 50;
-  
-  //gpu_kernel_set_arg_buffer(kernel, 0, table->columns[0]);
-  //gpu_kernel_set_arg_buffer(kernel, 1, table->columns[1]);
-  gpu_kernel_set_arg_buffer(kernel, 2, result_buffer);
-  gpu_kernel_set_arg_buffer(kernel, 3, result_count);
-  gpu_kernel_set_arg_u64(kernel, 4, threshold);
-  
-  gpu_kernel_execute(kernel, gpu_table, row_count, 64);
-  
-  U64* filtered_results = push_array(g_gdb_state->arena, U64, row_count);
-  gpu_buffer_read(result_buffer, filtered_results, row_count * sizeof(U64));
-  
-  U64 filtered_count = 0;
-  gpu_buffer_read(result_count, &filtered_count, sizeof(U64));
-  
-  printf("Filtered Values (>= %llu):\n", threshold);
-  for (U64 i = 0; i < filtered_count; i++)
-  {
-    //printf("%llu ", filtered_results[i]);
-  }
-  printf("\n");
-  
-  gdb_database_save(database, str8_lit("data/stress_one_million_rows"));
-}
-
-todo:
-
-
-*/
-
 internal void
 entry_point(void)
 {
@@ -300,7 +134,7 @@ entry_point(void)
                                          "INSERT INTO customers (id, name, age, email, balance) \n"
                                          "VALUES \n"
                                          "(1, 'Alice', 30, 'aliceinawonderland@example123.com', 1023.50),\n"
-                                         "(2, 'Bobdatbuilder', 26, 'bob321@example.com', 204.75),\n"
+                                         "(2, 'Bobdatbuilder', 26, 'bob321@example.com', 24.75),\n"
                                          "(3, 'Charlie', 40, 'charliecoca@example.com', 1500.00),\n"
                                          "(4, 'Danny', 65, 'dannybrown@example.com', 190000.00);\n"
                                          "\n"
@@ -330,18 +164,8 @@ entry_point(void)
                                         "WHERE age >= 25 AND (balance > 500 OR name = 'Bob') \n"
                                         );
     
-    //app_execute_query(complex_sql_query);
-    app_execute_query(use_retail_query);
-    //app_execute_query(test_select_query);
-    /*
-    */
-    
-    /*
-    test_one_million_rows_filter();
-    //test_save_database();
-    //test_load_database();
-    //test_stress();
-    */
+    app_execute_query(complex_sql_query);
+    //app_execute_query(use_retail_query);
   }
   ProfCodeEnd(entry_point)
 }

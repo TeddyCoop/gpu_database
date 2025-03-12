@@ -359,7 +359,7 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
 }
 
 internal String8
-gpu_generate_kernel_from_ir(Arena* arena, GDB_Database* database, IR_Node* select_ir_node, String8List* active_columns)
+gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* select_ir_node, String8List* active_columns)
 {
   String8List builder = { 0 };
   
@@ -370,9 +370,26 @@ gpu_generate_kernel_from_ir(Arena* arena, GDB_Database* database, IR_Node* selec
     return str8_lit("");
   }
   
-  str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
+  B32 contains_string_column = 0;
+  for (String8Node* node = active_columns->first; node != NULL; node = node->next)
+  {
+    String8 str = node->string;
+    GDB_ColumnType column_type = ir_find_column_type(database, select_ir_node, str);
+    if (column_type == GDB_ColumnType_String8)
+    {
+      contains_string_column = 1;
+    }
+  }
+  
+  if (contains_string_column)
+  {
+    str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
+  }
   str8_list_push(arena, &builder, str8_lit("\n"));
-  str8_list_push(arena, &builder, str8_lit("__kernel void query(\n"));
+  str8_list_push(arena, &builder, str8_lit("__kernel void "));
+  str8_list_push(arena, &builder, kernel_name);
+  str8_list_push(arena, &builder, str8_lit("(\n"));
+  //query(\n"));
   
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {

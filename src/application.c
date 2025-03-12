@@ -21,7 +21,7 @@ app_execute_query(String8 sql_query)
       
       case IR_NodeType_Use:
       {
-        // tec: crate nodes should only have one child
+        // tec: create nodes should only have one child
         IR_Node* use_object = ir_execution_node->first;
         
         if (use_object->type == IR_NodeType_Database)
@@ -29,7 +29,6 @@ app_execute_query(String8 sql_query)
           String8 database_path = push_str8f(arena, "data/%.*s", (U32)use_object->value.size, use_object->value.str);
           database = gdb_database_load(database_path);
           gdb_add_database(database);
-          test_print_database(database);
         }
       } break;
       
@@ -143,18 +142,96 @@ app_execute_query(String8 sql_query)
       } break;
       case IR_NodeType_Alter:
       {
+        IR_Node* table_node = ir_node_find_child(ir_execution_node, IR_NodeType_Table);
+        
       } break;
       case IR_NodeType_Delete:
       {
+        String8 kernel_name = str8_lit("delete_query");
+        IR_Node* where_clause = ir_node_find_child(ir_execution_node, IR_NodeType_Where);
+        String8List active_columns = { 0 };
+        ir_create_active_column_list(arena, where_clause, &active_columns);
+        String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, ir_execution_node, &active_columns);
+        log_info("%s", kernel_code.str);
+        
+        GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
+        U64 row_count = table->row_count;
+        U64 gpu_buffer_count = 0;
+        GPU_Buffer** column_gpu_buffers = 0;
+        GPU_Buffer* output_buffer = 0;
+        GPU_Buffer* row_count_buffer = 0;
+        {
+          for (String8Node* node = active_columns.first; node != NULL; node = node->next)
+          {
+            GDB_Column* column = gdb_table_find_column(table, node->string);
+            gpu_buffer_count += column->type == GDB_ColumnType_String8 ? 2 : 1;
+          }
+          
+          column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
+          U32 column_index = 0;
+          for (String8Node* node = active_columns.first; node != NULL; node = node->next)
+          {
+            GDB_Column* column = gdb_table_find_column(table, node->string);
+            U64 size = row_count * column->size;
+            void* data_ptr = column->data;
+            column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, data_ptr);
+            column_index++;
+            
+            if (column->type == GDB_ColumnType_String8)
+            {
+              U64 offset_size = row_count * sizeof(U32);
+              column_gpu_buffers[column_index] = gpu_buffer_alloc(offset_size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, column->offsets);
+              column_index++;
+            }
+          }
+          output_buffer = gpu_buffer_alloc(row_count * sizeof(U64), GPU_BufferFlag_ReadOnly, 0);
+          row_count_buffer = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadOnly | GPU_BufferFlag_HostCached, &row_count);
+        }
+        
+        GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
+        
+        if (!kernel)
+        {
+          log_error("failed to alloc kernel");
+          break;
+        }
+        
+        for (U64 i = 0; i < gpu_buffer_count; i++)
+        {
+          gpu_kernel_set_arg_buffer(kernel, i, column_gpu_buffers[i]);
+        }
+        gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count+0, output_buffer);
+        gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count+1, row_count_buffer);
+        
+        gpu_kernel_execute(kernel, 4, 4);
+        
+        
+        U64* filtered_results = push_array(arena, U64, row_count);
+        gpu_buffer_read(output_buffer, filtered_results, row_count * sizeof(U64));
+        
+        U64 filtered_count = 0;
+        gpu_buffer_read(row_count_buffer, &filtered_count, sizeof(U64));
+        
+        //~ tec: output
+        IR_Node* select_output_columns = ir_node_find_child(ir_execution_node, IR_NodeType_ColumnList);
+        for (U64 i = 0; i < filtered_count; i++)
+        {
+          B32 should_delete = filtered_results[i];
+          if (should_delete == 1)
+          {
+            gdb_table_remove_row(table, i);
+          }
+        }
       } break;
       
       //~ tec: gpu
       case IR_NodeType_Select:
       {
+        String8 kernel_name = str8_lit("select_query");
         String8List active_columns = { 0 };
         IR_Node* where_clause = ir_node_find_child(ir_execution_node, IR_NodeType_Where);
         ir_create_active_column_list(arena, where_clause, &active_columns);
-        String8 kernel_code = gpu_generate_kernel_from_ir(arena, database, ir_execution_node, &active_columns);
+        String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, ir_execution_node, &active_columns);
         //log_info("%s", kernel_code.str);
         
         //- tec: run the kernel
@@ -192,7 +269,7 @@ app_execute_query(String8 sql_query)
           row_count_buffer = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadOnly | GPU_BufferFlag_HostCached, &row_count);
         }
         
-        GPU_Kernel* kernel = gpu_kernel_alloc(str8_lit("query"), kernel_code);
+        GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
         
         if (!kernel)
         {
@@ -266,7 +343,6 @@ app_execute_query(String8 sql_query)
                   U64 length = end - start;
                   String8 str = { .str = column->data + start, .size = length };
                   printf("%.*s ", (int)str.size, str.str);
-                  
                 } break;
                 default:
                 printf("UNKNOWN ");
@@ -282,8 +358,9 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
-  gdb_database_save(database, database_filepath);
+  //test_print_database(database);
+  //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
+  //gdb_database_save(database, database_filepath);
   
   arena_release(arena);
 }
