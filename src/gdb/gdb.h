@@ -133,6 +133,7 @@ internal void gdb_table_add_row(GDB_Table* table, void** row_data);
 internal void gdb_table_remove_row(GDB_Table* table, U64 row_index);
 internal B32 gdb_table_save(GDB_Table* table, String8 path);
 internal GDB_Table* gdb_table_load(String8 path);
+internal GDB_Table* gdb_table_load_csv(String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
 
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);

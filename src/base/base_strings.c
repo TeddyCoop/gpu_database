@@ -334,6 +334,33 @@ str8_ends_with(String8 string, String8 end, StringMatchFlags flags){
   return is_match;
 }
 
+internal B32
+str8_is_numeric(String8 str)
+{
+  for (U64 i = 0; i < str.size; i++)
+  {
+    if (!char_is_digit(str.str[i], 10) && str.str[i] != '.')
+    {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+internal B32
+str8_contains(String8 str, U8 c)
+{
+  for (U64 i = 0; i < str.size; i++)
+  {
+    if (str.str[i] == c)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
 ////////////////////////////////
 //~ tec: String Slicing
 
@@ -847,6 +874,7 @@ str8_list_copy(Arena *arena, String8List *list){
   return(result);
 }
 
+/*
 internal String8List
 str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, StringSplitFlags flags){
   String8List list = {0};
@@ -879,6 +907,88 @@ str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, 
   }
   
   return(list);
+  
+}
+*/
+
+internal String8List
+str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, StringSplitFlags flags)
+{
+  String8List list = {0};
+  
+  B32 keep_empties = (flags & StringSplitFlag_KeepEmpties);
+  B32 respect_quotes = (flags & StringSplitFlag_RespectQuotes);
+  
+  U8 *ptr = string.str;
+  U8 *opl = string.str + string.size;
+  
+  while (ptr < opl) {
+    // Skip consecutive delimiters if not keeping empties
+    if (!(flags & StringSplitFlag_KeepEmpties)) {
+      while (ptr < opl) {
+        B32 is_delim = 0;
+        for (U64 i = 0; i < split_char_count; i++) {
+          if (*ptr == split_chars[i]) {
+            is_delim = 1;
+            break;
+          }
+        }
+        if (!is_delim) break;
+        ptr++; // Skip delimiter
+      }
+    }
+    
+    if (ptr >= opl) break;
+    
+    U8 *first = ptr;
+    B32 is_quoted = (respect_quotes && *ptr == '"');
+    
+    if (is_quoted) {
+      first++;  // Skip initial quote
+      ptr++;
+    }
+    
+    while (ptr < opl) {
+      U8 c = *ptr;
+      
+      if (is_quoted) {
+        if (c == '"') {
+          if (ptr + 1 < opl && ptr[1] == '"') {
+            ptr++; // Skip escaped quote ("" -> ")
+          } else {
+            ptr++; // Move past closing quote
+            break;
+          }
+        }
+      } else {
+        B32 is_split = 0;
+        for (U64 i = 0; i < split_char_count; i++) {
+          if (split_chars[i] == c) {
+            is_split = 1;
+            break;
+          }
+        }
+        if (is_split) break;
+      }
+      
+      ptr++;
+    }
+    
+    String8 substr = str8_range(first, ptr);
+    
+    if (keep_empties || substr.size > 0) {
+      str8_list_push(arena, &list, substr);
+    } else if (keep_empties) {
+      str8_list_push(arena, &list, str8_lit(""));
+    }
+    
+    // Move past delimiter
+    if (ptr < opl) {
+      ptr++; // Skip delimiter (even after quoted value)
+    }
+  }
+  
+  return list;
 }
 
 internal String8List

@@ -79,7 +79,8 @@ enum
 typedef U32 StringSplitFlags;
 enum
 {
-  StringSplitFlag_KeepEmpties = (1 << 0),
+  StringSplitFlag_KeepEmpties   = (1 << 0),
+  StringSplitFlag_RespectQuotes = (1 << 1),
 };
 
 typedef enum PathStyle
@@ -204,6 +205,8 @@ internal String8 backslashed_from_str8(Arena *arena, String8 string);
 internal B32 str8_match(String8 a, String8 b, StringMatchFlags flags);
 internal U64 str8_find_needle(String8 string, U64 start_pos, String8 needle, StringMatchFlags flags);
 internal B32 str8_ends_with(String8 string, String8 end, StringMatchFlags flags);
+internal B32 str8_is_numeric(String8 string);
+internal B32 str8_contains(String8 str, U8 c);
 
 ////////////////////////////////
 //~ tec: String Slicing

@@ -358,6 +358,9 @@ app_execute_query(String8 sql_query)
     }
   }
   
+  GDB_Table* test_table = gdb_table_load_csv(str8_lit("data/Real_Estate_Sales_2001-2022.csv"));
+  gdb_table_save_csv(test_table, str8_lit("data/real_estate.csv"));
+  
   //test_print_database(database);
   //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   //gdb_database_save(database, database_filepath);
