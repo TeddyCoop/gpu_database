@@ -90,12 +90,12 @@ arena_push(Arena *arena, U64 size, U64 align)
     U64 cmt_size = current->cmt_size;
     if(size > cmt_size)
     {
-      /*
       res_size = size + ARENA_HEADER_SIZE;
       cmt_size = size + ARENA_HEADER_SIZE;
-      */
+      /*
       res_size = AlignPow2(size + ARENA_HEADER_SIZE, os_get_system_info()->page_size);
       cmt_size = Min(res_size, arena_default_commit_size);
+      */
     }
     Arena *new_block = arena_alloc(.reserve_size = res_size,
                                    .commit_size = cmt_size,

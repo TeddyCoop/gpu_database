@@ -152,7 +152,7 @@ app_execute_query(String8 sql_query)
         String8List active_columns = { 0 };
         ir_create_active_column_list(arena, where_clause, &active_columns);
         String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, ir_execution_node, &active_columns);
-        log_info("%s", kernel_code.str);
+        //log_info("%s", kernel_code.str);
         
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
         U64 row_count = table->row_count;
@@ -358,10 +358,14 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  GDB_Table* test_table = gdb_table_load_csv(str8_lit("data/Real_Estate_Sales_2001-2022.csv"));
-  gdb_table_save_csv(test_table, str8_lit("data/real_estate.csv"));
+  //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Adoptable_Pets.csv"));
+  //gdb_table_export_csv(test_table, str8_lit("data/pets.csv"));
+  
+  GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"));
+  gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
   
   //test_print_database(database);
+  //gdb_database_add_table(database, test_table);
   //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   //gdb_database_save(database, database_filepath);
   

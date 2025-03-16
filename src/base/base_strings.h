@@ -247,6 +247,8 @@ internal String8 str8_from_s64(Arena *arena, S64 s64, U32 radix, U8 min_digits, 
 
 internal F64 f64_from_str8(String8 string);
 
+internal String8 str8_from_f64(Arena *arena, F64 value, U32 precision);
+
 ////////////////////////////////
 //~ tec: String List Construction Functions
 

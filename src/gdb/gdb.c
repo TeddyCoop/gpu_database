@@ -181,6 +181,8 @@ gdb_database_find_table(GDB_Database* database, String8 table_name)
 }
 
 //~ tec: tables
+
+
 internal GDB_Table*
 gdb_table_alloc(String8 name)
 {
@@ -323,8 +325,31 @@ gdb_table_save(GDB_Table* table, String8 path)
   return 1;
 }
 
+global U64 max_str_size = Thousand(10);
+
+internal void
+debug_check_table(GDB_Table* table)
+{
+  for (U64 col = 0; col < table->column_count; col++)
+  {
+    GDB_Column* column = table->columns[col];
+    if (column->type == GDB_ColumnType_String8)
+    {
+      for (U64 row = 0; row < column->row_count; row++)
+      {
+        String8 str = gdb_column_get_string(column, row);
+        
+        if (str.size >= max_str_size)
+        {
+          log_error("str overflow, curr str size: %llu, prev str size: %llu", str.size, gdb_column_get_string(column, row-1).size);
+        }
+      }
+    }
+  }
+}
+
 internal B32
-gdb_table_save_csv(GDB_Table* table, String8 path)
+gdb_table_export_csv(GDB_Table* table, String8 path)
 {
   OS_Handle file = os_file_open(OS_AccessFlag_Write, path);
   if (os_handle_match(os_handle_zero(), file))
@@ -333,79 +358,59 @@ gdb_table_save_csv(GDB_Table* table, String8 path)
     return 0;
   }
   
-  Temp scratch = scratch_begin(0, 0);
-  String8List output = {0};
+  Temp scratch = temp_begin(g_gdb_state->arena);
+  String8List buffer = { 0 };
   
+  // Write column headers
   for (U64 i = 0; i < table->column_count; i++)
   {
-    str8_list_push(scratch.arena, &output, table->columns[i]->name);
+    str8_list_push(scratch.arena, &buffer, table->columns[i]->name);
     if (i < table->column_count - 1)
     {
-      str8_list_push(scratch.arena, &output, str8_lit(","));
+      str8_list_push(scratch.arena, &buffer, str8_lit(","));
     }
   }
-  str8_list_push(scratch.arena, &output, str8_lit("\n"));
+  str8_list_push(scratch.arena, &buffer, str8_lit("\n"));
   
+  // Write row data
   for (U64 row = 0; row < table->row_count; row++)
   {
     for (U64 col = 0; col < table->column_count; col++)
     {
       GDB_Column* column = table->columns[col];
-      String8 value = {0};
+      String8 output = {0};
       
-      if (column->type == GDB_ColumnType_U32)
+      if (column->type == GDB_ColumnType_U64)
       {
-        U32 num = ((U32*)column->data)[row];
-        value = str8_from_u64(scratch.arena, num, 10, 0, 0);
-      }
-      else if (column->type == GDB_ColumnType_U64)
-      {
-        U64 num = ((U64*)column->data)[row];
-        value = str8_from_u64(scratch.arena, num, 10, 0, 0);
-      }
-      else if (column->type == GDB_ColumnType_F32)
-      {
-        F32 num = ((F32*)column->data)[row];
-        value = str8_from_s64(scratch.arena, (S64)num, 10, 0, 0);
+        U64* data = (U64*)gdb_column_get_data(column, row);
+        output = str8_from_u64(scratch.arena, *data, 10, 0, 0);
       }
       else if (column->type == GDB_ColumnType_F64)
       {
-        F64 num = ((F64*)column->data)[row];
-        value = str8_from_s64(scratch.arena, (S64)num, 10, 0, 0);
+        F64* data = (F64*)gdb_column_get_data(column, row);
+        output = str8_from_f64(scratch.arena, *data, 6);
       }
       else if (column->type == GDB_ColumnType_String8)
       {
-        if (row < column->capacity)
-        {
-          U64 offset = column->offsets[row];
-          U64 next_offset = (row + 1 < column->capacity) ? column->offsets[row + 1] : column->variable_capacity;
-          U64 str_size = next_offset - offset;
-          
-          if (offset + str_size <= column->variable_capacity)
-          {
-            value = (String8){column->data + offset, str_size};
-          }
-          else
-          {
-            value = str8_lit("");
-          }
-        }
+        output = gdb_column_get_string(column, row);
       }
       
-      str8_list_push(scratch.arena, &output, value);
+      str8_list_push(scratch.arena, &buffer, output);
       if (col < table->column_count - 1)
       {
-        str8_list_push(scratch.arena, &output, str8_lit(","));
+        str8_list_push(scratch.arena, &buffer, str8_lit(","));
       }
     }
-    str8_list_push(scratch.arena, &output, str8_lit("\n"));
+    str8_list_push(scratch.arena, &buffer, str8_lit("\n"));
   }
   
-  String8 final_output = str8_list_join(scratch.arena, &output, 0);
+  // Serialize and write to file
+  String8 final_output = str8_list_join(scratch.arena, &buffer, 0);
   os_file_write(file, r1u64(0, final_output.size), final_output.str);
-  os_file_close(file);
   
-  scratch_end(scratch);
+  os_file_close(file);
+  temp_end(scratch);
+  
   return 1;
 }
 
@@ -414,7 +419,6 @@ gdb_table_load(String8 path)
 {
   GDB_Table* table = gdb_table_alloc(str8_lit("temp"));
   
-  //Temp scratch = scratch_begin(0, 0);
   Temp scratch = temp_begin(g_gdb_state->arena);
   String8 file_data = os_data_from_file_path(scratch.arena, path);
   U8* read_ptr = file_data.str;
@@ -462,180 +466,72 @@ gdb_table_load(String8 path)
   
   table->name = str8_chop_last_dot(str8_skip_last_slash(path));
   
-  //scratch_end(scratch);
   temp_end(scratch);
   
   return table;
 }
 
 internal GDB_Table*
-gdb_table_load_csv(String8 path)
+gdb_table_import_csv(String8 path)
 {
-  GDB_Table* table = gdb_table_alloc(str8_chop_last_dot(str8_skip_last_slash(path)));
+  GDB_Table* table = gdb_table_alloc(str8_lit("temp"));
   
-  //Temp scratch = scratch_begin(0, 0);
   Temp scratch = temp_begin(g_gdb_state->arena);
   String8 file_data = os_data_from_file_path(scratch.arena, path);
-  U8* read_ptr = file_data.str;
   
-  String8List lines = str8_split_by_string_chars(scratch.arena, file_data, str8_lit("\n"), 0);
-  if (lines.node_count < 2)
+  String8List rows = str8_split_by_string_chars(scratch.arena, file_data, str8_lit("\n"), 0);
+  
+  if (rows.node_count == 0) return table;
+  
+  String8List columns = str8_split_by_string_chars(scratch.arena, rows.first->string, str8_lit(","), StringSplitFlag_RespectQuotes);
+  
+  U64 col_index = 0;
+  for (String8Node* col = columns.first; col; col = col->next, col_index++) 
   {
-    log_error("CSV file must have at least one data row: %s", path.str);
-    return 0;
-  }
-  
-  String8List column_names = str8_split_by_string_chars(scratch.arena, lines.first->string, str8_lit(","), StringSplitFlag_KeepEmpties);
-  
-  String8List first_data_row = str8_split_by_string_chars(scratch.arena, lines.first->next->string, str8_lit(","), StringSplitFlag_KeepEmpties);
-  
-  //- tec: get column names and types
-  U64 column_idx = 0;
-  for (String8Node* col_node = column_names.first, *data_node = first_data_row.first; 
-       col_node && data_node; 
-       col_node = col_node->next, data_node = data_node->next)
-  {
-    String8 column_name = push_str8_copy(table->arena, col_node->string);
-    String8 first_value = str8_skip_chop_whitespace(data_node->string);
-    
-    GDB_ColumnType column_type = 0;
-    U64 u64_val;
-    S64 s64_val;
-    if (try_u64_from_str8_c_rules(first_value, &u64_val))
-    {
-      column_type = (u64_val <= max_U32) ? GDB_ColumnType_U32 : GDB_ColumnType_U64;
-    }
-    else if (try_s64_from_str8_c_rules(first_value, &s64_val))
-    {
-      column_type = GDB_ColumnType_U64;
-    }
-    else
-    {
-      F64 f64_val = f64_from_str8(first_value);
-      if (str8_is_numeric(first_value) && (f64_val != 0.0 || str8_is_integer(first_value, 10)))
-      {
-        column_type = (f64_val == (F32)f64_val) ? GDB_ColumnType_F32 : GDB_ColumnType_F64;
-      }
-      else
-      {
-        column_type = GDB_ColumnType_String8;
-      }
-    }
-    GDB_ColumnSchema schema = gdb_column_schema_create(column_name, column_type);
+    String8 str = push_str8_copy(table->arena, col->string);
+    GDB_ColumnSchema schema = gdb_column_schema_create(str, GDB_ColumnType_String8);
     gdb_table_add_column(table, schema);
   }
   
-  //- tec: load rows
-  U64 row_idx = 0;
-  for (String8Node* line_node = lines.first->next; line_node; line_node = line_node->next)
+  U64 row_index = 0;
+  for (String8Node* row = rows.first->next; row; row = row->next, row_index++)
   {
-    String8List row_values = str8_split_by_string_chars(scratch.arena, line_node->string, str8_lit(","), StringSplitFlag_KeepEmpties | StringSplitFlag_RespectQuotes);
-    if (row_values.node_count != table->column_count)
-    {
-      //log_error("mismatch in column count at row %llu", row_idx);
-      //continue;
-    }
+    String8List values = str8_split_by_string_chars(scratch.arena, row->string, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
     
-    U64 col_idx = 0;
-    for (String8Node* value_node = row_values.first; value_node; value_node = value_node->next)
-    {
-      String8 value = str8_skip_chop_whitespace(value_node->string);
-      GDB_Column* column = table->columns[col_idx];
+    col_index = 0;
+    for (String8Node* val = values.first; val && col_index < columns.node_count; val = val->next, col_index++) {
+      GDB_Column* column = table->columns[col_index];
       
-      if (value.size == 0)
+      if (str8_is_numeric(val->string)) 
       {
-        if (column->type == GDB_ColumnType_String8)
+        if (str8_contains(val->string, '.'))
         {
-          String8 empty_str = {0}; 
-          gdb_column_add_data(column, &empty_str);
+          F64 data = f64_from_str8(val->string);
+          column->type = GDB_ColumnType_F64;
+          gdb_column_add_data(column, &data);
+        } else { 
+          U64 data= u64_from_str8(val->string, 10);
+          column->type = GDB_ColumnType_U64;
+          gdb_column_add_data(column, &data);
         }
-        else if (column->type == GDB_ColumnType_U32)
-        {
-          U32 zero = 0;
-          gdb_column_add_data(column, &zero);
-        }
-        else if (column->type == GDB_ColumnType_U64)
-        {
-          U64 zero = 0;
-          gdb_column_add_data(column, &zero);
-        }
-        else if (column->type == GDB_ColumnType_F32)
-        {
-          F32 zero = 0.0f;
-          gdb_column_add_data(column, &zero);
-        }
-        else if (column->type == GDB_ColumnType_F64)
-        {
-          F64 zero = 0.0;
-          gdb_column_add_data(column, &zero);
-        }
+      } else {
+        gdb_column_add_data(column, &val->string);
+        //column->type = GDB_ColumnType_String8;
+        //column->data = push_array(table->arena, U8, val->string.size);
+        //MemoryCopy(column->data, val->string.str, val->string.size);
       }
-      else
-      {
-        if (column->type == GDB_ColumnType_String8)
-        {
-          gdb_column_add_data(column, &value);
-        }
-        else if (column->type == GDB_ColumnType_U32)
-        {
-          U32 num = (U32)u64_from_str8(value, 10);
-          gdb_column_add_data(column, &num);
-        }
-        else if (column->type == GDB_ColumnType_U64)
-        {
-          U64 num = u64_from_str8(value, 10);
-          gdb_column_add_data(column, &num);
-        }
-        else if (column->type == GDB_ColumnType_F32)
-        {
-          F32 num = (F32)f64_from_str8(value);
-          gdb_column_add_data(column, &num);
-        }
-        else if (column->type == GDB_ColumnType_F64)
-        {
-          F64 num = f64_from_str8(value);
-          gdb_column_add_data(column, &num);
-        }
-      }
-      /*
-      if (column->type == GDB_ColumnType_String8)
-      {
-        gdb_column_add_data(column, &value);
-      }
-      else if (column->type == GDB_ColumnType_U32)
-      {
-        U64 num = u64_from_str8(value, 10);
-        U32 u32_val = (U32)num;
-        gdb_column_add_data(column, &u32_val);
-      }
-      else if (column->type == GDB_ColumnType_U64)
-      {
-        U64 num = u64_from_str8(value, 10);
-        gdb_column_add_data(column, &num);
-      }
-      else if (column->type == GDB_ColumnType_F32)
-      {
-        F32 num = (F32)f64_from_str8(value);
-        gdb_column_add_data(column, &num);
-      }
-      else if (column->type == GDB_ColumnType_F64)
-      {
-        F64 num = f64_from_str8(value);
-        gdb_column_add_data(column, &num);
-      }
-      */
-      
-      col_idx++;
     }
-    row_idx++;
   }
   
-  table->row_count = row_idx;
-  //scratch_end(scratch);
+  table->name = str8_chop_last_dot(str8_skip_last_slash(path));
+  table->row_count = row_index;
+  
+  debug_check_table(table);
+  
   temp_end(scratch);
+  
   return table;
 }
-
 
 internal GDB_Column*
 gdb_table_find_column(GDB_Table* table, String8 column_name)
@@ -695,7 +591,8 @@ gdb_column_add_data(GDB_Column* column, void* data)
     }
     
     //- tec: grow variable data if needed
-    U64 required_size = (column->row_count > 0 ? column->offsets[column->row_count - 1] : 0) + str->size;
+    U64 previous_offset = (column->row_count > 0) ? column->offsets[column->row_count - 1] : 0;
+    U64 required_size = previous_offset + str->size;
     if (required_size > column->variable_capacity)
     {
       U64 new_variable_capacity = (column->variable_capacity > 0) ? column->variable_capacity * 2 : KB(4);
@@ -712,12 +609,13 @@ gdb_column_add_data(GDB_Column* column, void* data)
       column->variable_capacity = new_variable_capacity;
     }
     
-    // tec: add string data
-    //column->offsets[column->row_count] = (column->row_count > 0 ? column->offsets[column->row_count - 1] : 0) + str->size;
-    //log_info("offset: %llu", column->offsets[column->row_count]);
-    //MemoryCopy(column->data + column->offsets[column->row_count], str->str, str->size);
-    
     U64 current_offset = column->offsets[column->row_count];
+    if (current_offset > (max_U64 / 2) || (current_offset + str->size) > (max_U64 / 2))
+    {
+      log_error("String column offset too large, possible overflow. current_offset=%llu, next_offset=%llu",
+                current_offset, current_offset + str->size);
+      return;
+    }
     MemoryCopy(column->data + current_offset, str->str, str->size);
     column->offsets[column->row_count+1] = current_offset + str->size;
   }
@@ -797,15 +695,37 @@ gdb_column_remove_data(GDB_Column* column, U64 row_index)
 internal void*
 gdb_column_get_data(GDB_Column* column, U64 index)
 {
-  if (column->type == GDB_ColumnType_String8)
+  return (void*)(column->data + index * column->size);
+}
+
+internal String8
+gdb_column_get_string(GDB_Column* column, U64 index)
+{
+  String8 result = { 0 };
+  
+  if (index >= column->capacity)
   {
+    return result;
+  }
+  
+  if (column->type == GDB_ColumnType_String8 &&
+      column->offsets)
+  {
+    U64 start = column->offsets[index];
+    U64 end = 0;
+    if (index + 1 < column->capacity)
+    {
+      end = column->offsets[index + 1];
+    }
+    else
+    {
+      end = column->variable_capacity;
+    }
     
+    result = (String8){ .str = column->data + start, .size = end - start };
   }
-  else
-  {
-    return (void*)(column->data + index * column->size);
-  }
-  return NULL;
+  
+  return result;
 }
 
 //~ tec: utils

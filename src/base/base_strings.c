@@ -705,6 +705,29 @@ str8_from_s64(Arena *arena, S64 s64, U32 radix, U8 min_digits, U8 digit_group_se
   return result;
 }
 
+internal String8
+str8_from_f64(Arena *arena, F64 value, U32 precision)
+{
+  S64 integer_part = (S64)value;
+  F64 fractional_part = value - (F64)integer_part;
+  
+  // Convert integer part
+  String8 int_str = str8_from_s64(arena, integer_part, 10, 0, 0);
+  
+  // Convert fractional part
+  fractional_part *= pow(10.0, precision);
+  S64 fractional_int = (S64)(fractional_part + 0.5); // Correct rounding
+  String8 frac_str = str8_from_u64(arena, (U64)fractional_int, 10, precision, 0);
+  
+  // Allocate result
+  String8List list = {0};
+  str8_list_push(arena, &list, int_str);
+  str8_list_push(arena, &list, str8_lit(".")); // Decimal point
+  str8_list_push(arena, &list, frac_str);
+  
+  return str8_list_join(arena, &list, 0);
+}
+
 ////////////////////////////////
 //~ tec: String <=> Float Conversions
 
