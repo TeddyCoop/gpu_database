@@ -945,19 +945,24 @@ str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, 
   U8 *ptr = string.str;
   U8 *opl = string.str + string.size;
   
-  while (ptr < opl) {
-    // Skip consecutive delimiters if not keeping empties
-    if (!(flags & StringSplitFlag_KeepEmpties)) {
-      while (ptr < opl) {
+  while (ptr < opl)
+  {
+    // tec: skip consecutive delimiters if not keeping empties
+    if (!(flags & StringSplitFlag_KeepEmpties))
+    {
+      while (ptr < opl) 
+      {
         B32 is_delim = 0;
-        for (U64 i = 0; i < split_char_count; i++) {
-          if (*ptr == split_chars[i]) {
+        for (U64 i = 0; i < split_char_count; i++) 
+        {
+          if (*ptr == split_chars[i])
+          {
             is_delim = 1;
             break;
           }
         }
         if (!is_delim) break;
-        ptr++; // Skip delimiter
+        ptr++; // tec: skip delimiter
       }
     }
     
@@ -966,27 +971,38 @@ str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, 
     U8 *first = ptr;
     B32 is_quoted = (respect_quotes && *ptr == '"');
     
-    if (is_quoted) {
-      first++;  // Skip initial quote
+    if (is_quoted) 
+    {
+      //first++;  // tec; skip initial quote
       ptr++;
     }
     
-    while (ptr < opl) {
+    while (ptr < opl)
+    {
       U8 c = *ptr;
       
-      if (is_quoted) {
-        if (c == '"') {
-          if (ptr + 1 < opl && ptr[1] == '"') {
-            ptr++; // Skip escaped quote ("" -> ")
-          } else {
-            ptr++; // Move past closing quote
+      if (is_quoted)
+      {
+        if (c == '"')
+        {
+          if (ptr + 1 < opl && ptr[1] == '"') 
+          {
+            ptr++; // tec: skip escaped quote ("" -> ")
+          }
+          else
+          {
+            ptr++; // tec: move past closing quote
             break;
           }
         }
-      } else {
+      } 
+      else 
+      {
         B32 is_split = 0;
-        for (U64 i = 0; i < split_char_count; i++) {
-          if (split_chars[i] == c) {
+        for (U64 i = 0; i < split_char_count; i++) 
+        {
+          if (split_chars[i] == c) 
+          {
             is_split = 1;
             break;
           }
@@ -999,16 +1015,26 @@ str8_split(Arena *arena, String8 string, U8 *split_chars, U64 split_char_count, 
     
     String8 substr = str8_range(first, ptr);
     
-    if (keep_empties || substr.size > 0) {
+    if (keep_empties || substr.size > 0) 
+    {
       str8_list_push(arena, &list, substr);
-    } else if (keep_empties) {
+    } 
+    else if (keep_empties)
+    {
       str8_list_push(arena, &list, str8_lit(""));
     }
     
-    // Move past delimiter
-    if (ptr < opl) {
-      ptr++; // Skip delimiter (even after quoted value)
+    // tec: move past delimiter
+    if (ptr < opl)
+    {
+      ptr++; // tec: skip delimiter (even after quoted value)
     }
+  }
+  
+  // tec: handle trailing empty column if needed
+  if (keep_empties && ptr >= opl && *(ptr - 1) == split_chars[0]) 
+  {
+    str8_list_push(arena, &list, str8_lit(""));
   }
   
   return list;

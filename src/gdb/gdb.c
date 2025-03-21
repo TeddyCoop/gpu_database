@@ -476,7 +476,7 @@ gdb_table_load(String8 path)
 }
 
 internal GDB_Table*
-gdb_table_import_csv(String8 path)
+gdb_table_import_csv(String8 path, GDB_ColumnType* column_types, U64 column_type_count)
 {
   GDB_Table* table = gdb_table_alloc(str8_lit("temp"));
   
@@ -489,11 +489,17 @@ gdb_table_import_csv(String8 path)
   
   String8List columns = str8_split_by_string_chars(scratch.arena, rows.first->string, str8_lit(","), StringSplitFlag_RespectQuotes);
   
+  if (columns.node_count != column_type_count)
+  {
+    log_error("column_type_count %llu does not match column count in .csv %llu", column_type_count, columns.node_count);
+    return NULL;
+  }
+  
   U64 col_index = 0;
   for (String8Node* col = columns.first; col; col = col->next, col_index++) 
   {
     String8 str = push_str8_copy(table->arena, col->string);
-    GDB_ColumnSchema schema = gdb_column_schema_create(str, GDB_ColumnType_String8);
+    GDB_ColumnSchema schema = gdb_column_schema_create(str, column_types[col_index]);
     gdb_table_add_column(table, schema);
   }
   
@@ -524,33 +530,23 @@ gdb_table_import_csv(String8 path)
           U64 empty_u64 = 0;
           gdb_column_add_data(column, &empty_u64);
         }
-        continue;
       }
-      
-      if (str8_is_numeric(val->string)) 
+      else
       {
-        if (str8_contains(val->string, '.'))
+        if (column->type == GDB_ColumnType_String8)
+        {
+          gdb_column_add_data(column, &val->string);
+        }
+        else if (column->type == GDB_ColumnType_F64)
         {
           F64 data = f64_from_str8(val->string);
-          if (row_index == 0)
-          {
-            column->type = GDB_ColumnType_F64;
-          }
-          gdb_column_add_data(column, &data);
-        } 
-        else 
-        { 
-          U64 data= u64_from_str8(val->string, 10);
-          if (row_index == 0)
-          {
-            column->type = GDB_ColumnType_U64;
-          }
           gdb_column_add_data(column, &data);
         }
-      }
-      else 
-      {
-        gdb_column_add_data(column, &val->string);
+        else if (column->type == GDB_ColumnType_U64)
+        {
+          U64 data = u64_from_str8(val->string, 10);
+          gdb_column_add_data(column, &data);
+        }
       }
     }
   }
