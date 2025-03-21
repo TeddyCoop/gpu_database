@@ -1031,7 +1031,8 @@ str8_list_split_by_string_chars(Arena *arena, String8List list, String8 split_ch
 }
 
 internal String8
-str8_list_join(Arena *arena, String8List *list, StringJoin *optional_params){
+str8_list_join(Arena *arena, String8List *list, StringJoin *optional_params)
+{
   StringJoin join = {0};
   if (optional_params != 0){
     MemoryCopyStruct(&join, optional_params);

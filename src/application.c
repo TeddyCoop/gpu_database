@@ -358,14 +358,15 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Adoptable_Pets.csv"));
-  //gdb_table_export_csv(test_table, str8_lit("data/pets.csv"));
+  GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Adoptable_Pets.csv"));
+  gdb_table_export_csv(test_table, str8_lit("data/pets.csv"));
   
-  GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"));
-  gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
+  //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"));
+  //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10.csv"));
+  //gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
   
-  //test_print_database(database);
   //gdb_database_add_table(database, test_table);
+  //test_print_database(database);
   //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   //gdb_database_save(database, database_filepath);
   
