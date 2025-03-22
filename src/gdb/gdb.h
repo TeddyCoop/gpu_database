@@ -134,7 +134,8 @@ internal void gdb_table_remove_row(GDB_Table* table, U64 row_index);
 internal B32 gdb_table_save(GDB_Table* table, String8 path);
 internal B32 gdb_table_export_csv(GDB_Table* table, String8 path);
 internal GDB_Table* gdb_table_load(String8 path);
-internal GDB_Table* gdb_table_import_csv(String8 path, GDB_ColumnType* column_types, U64 column_type_count);
+//internal GDB_Table* gdb_table_import_csv(String8 path, GDB_ColumnType* column_types, U64 column_type_count);
+internal GDB_Table* gdb_table_import_csv(String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
 
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);
@@ -145,6 +146,9 @@ internal void* gdb_column_get_data(GDB_Column* column, U64 index);
 internal String8 gdb_column_get_string(GDB_Column* column, U64 index);
 
 internal GDB_ColumnType gdb_column_type_from_string(String8 str);
+internal String8 string_from_gdb_column_type(GDB_ColumnType type);
 internal GDB_ColumnSchema gdb_column_schema_create(String8 name, GDB_ColumnType type);
+internal GDB_ColumnType gdb_infer_column_type(String8 value);
+internal GDB_ColumnType gdb_promote_type(GDB_ColumnType existing, GDB_ColumnType new_type);
 
 #endif //GDB_H

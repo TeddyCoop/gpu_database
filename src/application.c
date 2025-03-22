@@ -382,11 +382,11 @@ app_execute_query(String8 sql_query)
       GDB_ColumnType_String8,
       GDB_ColumnType_String8,
     };
-    GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022.csv"), types, ArrayCount(types));
-    gdb_table_export_csv(test_table, str8_lit("data/real_estate_big.csv"));
-    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10.csv"), types, ArrayCount(types));
+    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022.csv"), types, ArrayCount(types));
+    //gdb_table_export_csv(test_table, str8_lit("data/real_estate_big.csv"));
+    GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10.csv"));
     //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"), types, ArrayCount(types));
-    //gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
+    gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
   }
   
   //gdb_database_add_table(database, test_table);
