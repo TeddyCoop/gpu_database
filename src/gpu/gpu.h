@@ -3,7 +3,7 @@
 #ifndef GPU_H
 #define GPU_H
 
-#define GPU_CHUNK_SIZE MB(1)
+#define GPU_MAX_BUFFER_SIZE MB(1)
 
 typedef enum GPU_BufferFlags
 {

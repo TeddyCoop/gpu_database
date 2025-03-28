@@ -3,6 +3,14 @@
 #ifndef APPLICATION_H
 #define APPLICATION_H
 
+typedef struct APP_KernelResult APP_KernelResult;
+struct APP_KernelResult
+{
+  U64* indices;
+  U64 count;
+};
+
 internal void app_execute_query(String8 sql_query);
+internal APP_KernelResult app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* root_node);
 
 #endif //APPLICATION_H

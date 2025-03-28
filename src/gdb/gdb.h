@@ -45,7 +45,8 @@ offsets - U64*
 #define GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE KB(1)
 #define GDB_COLUMN_MAX_GROW_BY_SIZE MB(64)
 
-#define GDB_DISK_BACKED_THRESHOLD_SIZE 8
+//#define GDB_DISK_BACKED_THRESHOLD_SIZE MB(256)
+#define GDB_DISK_BACKED_THRESHOLD_SIZE 256
 
 typedef U32 GDB_ColumnType;
 enum
@@ -75,6 +76,15 @@ struct GDB_ColumnSchema
   String8 name;
   GDB_ColumnType type;
   U64 size;
+};
+
+typedef struct GDB_StringDataChunk GDB_StringDataChunk;
+struct GDB_StringDataChunk
+{
+  void* data;
+  U64* offsets;
+  U64 size;
+  U64 row_count;
 };
 
 typedef struct GDB_Column GDB_Column;
@@ -163,6 +173,9 @@ internal void gdb_column_add_data(GDB_Column* column, void* data);
 internal void gdb_column_remove_data(GDB_Column* column, U64 row_index);
 internal void* gdb_column_get_data(GDB_Column* column, U64 index);
 internal String8 gdb_column_get_string(GDB_Column* column, U64 index);
+internal U64 gdb_column_get_total_size(GDB_Column* column);
+internal void* gdb_column_get_data_range(Arena* arena, GDB_Column* column, Rng1U64 row_range, U64* out_size);
+internal GDB_StringDataChunk gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range);
 
 internal GDB_ColumnType gdb_column_type_from_string(String8 str);
 internal String8 string_from_gdb_column_type(GDB_ColumnType type);

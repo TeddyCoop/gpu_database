@@ -193,8 +193,8 @@ entry_point(void)
 /*
 
 todo:
-- when a file is too large. read piece by piece
- -- this might mean memory mapped files
+[x]- when a file is too large. read piece by piece
+ [x]-- this might mean memory mapped files
 --- if added, it might be possible to keep active memory usage under 1 GB, maybe in the MB region
 
 - a query returned from the gpu should be a sparse array, only holding the indices of valid elements
@@ -203,7 +203,7 @@ todo:
 
 - maybe work on other gpu api layers (CUDA, Vulkan)
 
-- add header to .gdbt files
+- add header to .meta files
 
 - more asserts, logging, better profiling
 -- maybe a log file
