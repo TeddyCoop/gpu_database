@@ -53,6 +53,7 @@ ir_type_from_sql_node_type(SQL_NodeType sql_type)
     case SQL_NodeType_Ascending:     return IR_NodeType_Ascending;
     case SQL_NodeType_Descending:    return IR_NodeType_Descending;
     case SQL_NodeType_Insert:        return IR_NodeType_Insert;
+    case SQL_NodeType_Import:        return IR_NodeType_Import;
     case SQL_NodeType_Value:         return IR_NodeType_Value;
     case SQL_NodeType_ValueGroup:    return IR_NodeType_ValueGroup;
     case SQL_NodeType_ColumnList:    return IR_NodeType_ColumnList; 
@@ -99,6 +100,7 @@ ir_node_type_to_string(IR_NodeType type)
     case IR_NodeType_Ascending: result = str8_lit("IR_NodeType_Ascending"); break;
     case IR_NodeType_Descending: result = str8_lit("IR_NodeType_Descending"); break;
     case IR_NodeType_Insert: result = str8_lit("IR_NodeType_Insert"); break;
+    case IR_NodeType_Import: result = str8_lit("IR_NodeType_Import"); break;
     case IR_NodeType_Value: result = str8_lit("IR_NodeType_Value"); break;
     case IR_NodeType_ValueGroup: result = str8_lit("IR_NodeType_ValueGroup"); break;
     case IR_NodeType_ColumnList: result = str8_lit("IR_NodeType_ColumnList"); break;

@@ -224,6 +224,32 @@ app_execute_query(String8 sql_query)
         }
       } break;
       
+      case IR_NodeType_Import:
+      {
+        IR_Node* table_node = ir_node_find_child(ir_execution_node, IR_NodeType_Table);
+        IR_Node* import_file_node = ir_node_find_child(ir_execution_node, IR_NodeType_Literal);
+        
+        //if (gdb_database_contains_table(database, table_node->value))
+        {
+          
+        }
+        //else
+        {
+          Temp scratch = scratch_begin(0, 0);
+          /*
+          String8 filepath = push_str8f(scratch.arena, "data/%.*s/%.*s", 
+                                        (U32)database->name.size, database->name.str,
+                                        (U32)import_file_node->value.size, import_file_node->value.str);
+          */
+          String8 filepath = push_str8f(scratch.arena, "data/%.*s", 
+                                        (U32)import_file_node->value.size, import_file_node->value.str);
+          GDB_Table* table = gdb_table_import_csv(filepath);
+          table->name = push_str8_copy(table->arena, table->name);
+          scratch_end(scratch);
+          gdb_database_add_table(database, table);
+        }
+      } break;
+      
       //~ tec: gpu
       case IR_NodeType_Select:
       {
@@ -358,41 +384,21 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  {
-    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Adoptable_Pets.csv"));
-    //gdb_table_export_csv(test_table, str8_lit("data/pets.csv"));
-  }
+  String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
+  gdb_database_save(database, database_filepath);
   
+  test_print_database(database);
+  
+  GDB_Table* table = gdb_database_find_table(database, str8_lit("customers"));
+  if (table)
   {
-    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"));
-    GDB_ColumnType types[] = 
+    GDB_Column* col = gdb_table_find_column(table, str8_lit("id"));
+    if (col)
     {
-      GDB_ColumnType_U64,
-      GDB_ColumnType_U64,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_F64,
-      GDB_ColumnType_F64,
-      GDB_ColumnType_F64,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-      GDB_ColumnType_String8,
-    };
-    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022.csv"), types, ArrayCount(types));
-    //gdb_table_export_csv(test_table, str8_lit("data/real_estate_big.csv"));
-    GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10.csv"));
-    //GDB_Table* test_table = gdb_table_import_csv(str8_lit("data/Real_Estate_Sales_2001-2022_10k.csv"), types, ArrayCount(types));
-    gdb_table_export_csv(test_table, str8_lit("data/real_estate.csv"));
+      void* data = gdb_column_get_data(col, 1);
+      log_info("data %u", *(U32*)data);
+    }
   }
-  
-  //gdb_database_add_table(database, test_table);
-  //test_print_database(database);
-  //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
-  //gdb_database_save(database, database_filepath);
   
   arena_release(arena);
 }

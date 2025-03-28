@@ -245,6 +245,10 @@ sql_parse(Arena* arena, SQL_Token* tokens, U64 token_count)
       {
         new_node = sql_parse_insert_clause(arena, &tokens, &token_index, token_count);
       }
+      else if (str8_match(token->value, str8_lit("import"), StringMatchFlag_CaseInsensitive))
+      {
+        new_node = sql_parse_import_clause(arena, &tokens, &token_index, token_count);
+      }
       else if (str8_match(token->value, str8_lit("create"), StringMatchFlag_CaseInsensitive))
       {
         new_node = sql_parse_create_clause(arena, &tokens, &token_index, token_count);
@@ -699,6 +703,69 @@ sql_parse_insert_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 
   insert_node->last = values_node;
   
   return insert_node;
+}
+
+internal SQL_Node*
+sql_parse_import_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count)
+{
+  SQL_Node* import_node = push_array(arena, SQL_Node, 1);
+  import_node->type = SQL_NodeType_Import;
+  
+  (*token_index)++; // tec: move past 'IMPORT'
+  
+  // tec: expect 'INTO'
+  if (*token_index >= token_count || 
+      (*tokens)[*token_index].type != SQL_TokenType_Keyword || 
+      !str8_match((*tokens)[*token_index].value, str8_lit("into"), StringMatchFlag_CaseInsensitive))
+  {
+    log_error("Expected 'INTO' keyword in 'IMPORT' statement");
+    return NULL;
+  }
+  (*token_index)++; // tec: move past 'INTO'
+  
+  // tec: expect table name
+  if (*token_index >= token_count || (*tokens)[*token_index].type != SQL_TokenType_Identifier)
+  {
+    log_error("Expected table name after 'INTO' in 'IMPORT' statement");
+    return NULL;
+  }
+  
+  SQL_Node* table_node = push_array(arena, SQL_Node, 1);
+  table_node->type = SQL_NodeType_Table;
+  table_node->value = (*tokens)[*token_index].value;
+  (*token_index)++;
+  
+  import_node->first = table_node;
+  table_node->parent = import_node;
+  
+  // tec: expect 'FROM'
+  if (*token_index >= token_count || 
+      (*tokens)[*token_index].type != SQL_TokenType_Keyword || 
+      !str8_match((*tokens)[*token_index].value, str8_lit("from"), StringMatchFlag_CaseInsensitive))
+  {
+    log_error("Expected 'FROM' keyword in 'IMPORT' statement");
+    return NULL;
+  }
+  (*token_index)++; // tec: move past 'FROM'
+  
+  // tec: expect file path as string literal
+  if (*token_index >= token_count || (*tokens)[*token_index].type != SQL_TokenType_String)
+  {
+    log_error("Expected file path after 'FROM' in 'IMPORT' statement");
+    return NULL;
+  }
+  
+  SQL_Node* path_node = push_array(arena, SQL_Node, 1);
+  path_node->type = SQL_NodeType_Literal;
+  path_node->value = (*tokens)[*token_index].value;
+  (*token_index)++;
+  
+  table_node->next = path_node;
+  path_node->prev = table_node;
+  path_node->parent = import_node;
+  import_node->last = path_node;
+  
+  return import_node;
 }
 
 internal SQL_Node*
@@ -1272,6 +1339,7 @@ sql_node_type_to_string(SQL_NodeType type)
     case SQL_NodeType_Identifier: result = str8_lit("SQL_NodeType_Identifier"); break;
     case SQL_NodeType_Literal: result = str8_lit("SQL_NodeType_Literal"); break;
     case SQL_NodeType_Insert: result = str8_lit("SQL_NodeType_Insert"); break;
+    case SQL_NodeType_Import: result = str8_lit("SQL_NodeType_Import"); break;
     case SQL_NodeType_Delete: result = str8_lit("SQL_NodeType_Delete"); break;
     case SQL_NodeType_Create: result = str8_lit("SQL_NodeType_Create"); break;
     case SQL_NodeType_Drop: result = str8_lit("SQL_NodeType_Drop"); break;

@@ -102,6 +102,7 @@ gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data)
   if (result != CL_SUCCESS) 
   {
     log_error("failed to create buffer, error: %i", result);
+    return NULL;
   }
   
   return buffer;
@@ -206,39 +207,6 @@ gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
     log_error("failed to set argument %llu for kernel (code: %d)", index, err);
   }
 }
-
-//~ tec: test
-String8 g_filter_kernel_string = str8_lit_comp(
-                                               "__kernel void filter_kernel(__global const ulong *input,\n"
-                                               "__global ulong *output, \n"
-                                               "const ulong threshold,\n "
-                                               "__global ulong* result_count)\n" 
-                                               "{\n"
-                                               "int gid = get_global_id(0);\n"
-                                               "\n"
-                                               "if (input[gid] >= threshold)\n" 
-                                               "{\n"
-                                               "ulong index = atomic_add(result_count, 1);\n"
-                                               "output[index] = input[gid];\n"
-                                               "}\n"
-                                               "}");
-
-String8 g_stress_test_kernel_string = str8_lit_comp("__kernel void stress_test(\n"
-                                                    "__global const ulong* col1,   // U32 Column\n"
-                                                    "__global const double* col2,  // F32 Column\n"
-                                                    "__global ulong* result,       // Output (filtered U32)\n"
-                                                    "__global ulong* count,        // Result count\n"
-                                                    "ulong threshold               // Filter condition\n"
-                                                    ") {\n"
-                                                    "int gid = get_global_id(0);\n"
-                                                    "\n"
-                                                    "// Apply some computation (e.g., filter col1 where col2 > threshold)\n"
-                                                    "if (col2[gid] > (double)threshold) {\n"
-                                                    "ulong index = atomic_add(count, 1);\n"
-                                                    "result[index] = col1[gid];\n"
-                                                    "}\n"
-                                                    "}");
-
 
 //~ tec: kernel generation
 

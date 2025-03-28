@@ -3,6 +3,8 @@
 #ifndef GPU_H
 #define GPU_H
 
+#define GPU_CHUNK_SIZE MB(1)
+
 typedef enum GPU_BufferFlags
 {
   GPU_BufferFlag_ReadOnly  = (1 << 0),

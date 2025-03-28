@@ -1,7 +1,7 @@
 internal void
 gdb_init(void)
 {
-  Arena* arena = arena_alloc(.reserve_size=GB(2), .commit_size=MB(32));
+  Arena* arena = arena_alloc(.reserve_size=GDB_STATE_ARENA_RESERVE_SIZE, .commit_size=GDB_STATE_ARENA_COMMIT_SIZE);
   g_gdb_state = push_array(arena, GDB_State, 1);
   g_gdb_state->arena = arena;
   
@@ -19,8 +19,8 @@ gdb_add_database(GDB_Database* database)
 {
   if (g_gdb_state->database_count == 0)
   {
-    g_gdb_state->databases = push_array(g_gdb_state->arena, GDB_Database*, 4);
-    g_gdb_state->database_capacity = 4;
+    g_gdb_state->databases = push_array(g_gdb_state->arena, GDB_Database*, 2);
+    g_gdb_state->database_capacity = 2;
   }
   else if (g_gdb_state->database_count >= g_gdb_state->database_capacity)
   {
@@ -39,7 +39,7 @@ gdb_add_database(GDB_Database* database)
 internal GDB_Database*
 gdb_database_alloc(String8 name)
 {
-  Arena* arena = arena_alloc(.reserve_size=KB(64), .commit_size=KB(4));
+  Arena* arena = arena_alloc(.reserve_size=GDB_DATABASE_ARENA_RESERVE_SIZE, .commit_size=GDB_DATABASE_ARENA_COMMIT_SIZE);
   GDB_Database* database = push_array(arena, GDB_Database, 1);
   
   database->name = name;
@@ -60,8 +60,8 @@ gdb_database_add_table(GDB_Database* database, GDB_Table* table)
 {
   if (database->table_count == 0)
   {
-    database->tables = push_array(database->arena, GDB_Table*, 8);
-    database->table_capacity = 8;
+    database->tables = push_array(database->arena, GDB_Table*, 2);
+    database->table_capacity = 2;
   }
   else if (database->table_count >= database->table_capacity)
   {
@@ -82,18 +82,6 @@ gdb_database_save(GDB_Database* database, String8 directory)
 {
   Temp scratch = scratch_begin(0, 0);
   
-  // tec: check if the last character is a slash
-  {
-    U8 last_char = directory.str[directory.size-1];
-    if (last_char == '/' || last_char == '\\')
-    {
-    }
-    else
-    {
-      directory = push_str8_cat(scratch.arena, directory, str8_lit("/"));
-    }
-  }
-  
   if (!os_make_directory(directory))
   {
     log_error("failed to create/open database directory: %s", directory.str);
@@ -103,8 +91,15 @@ gdb_database_save(GDB_Database* database, String8 directory)
   for (U64 i = 0; i < database->table_count; i++)
   {
     GDB_Table* table = database->tables[i];
-    String8 file_path = push_str8f(scratch.arena, "%s%.*s.gdbt", directory.str, (U32)table->name.size, table->name.str);
-    if (!gdb_table_save(table, file_path))
+    String8 table_dir = push_str8f(scratch.arena, "%.*s/%.*s", str8_varg(directory), str8_varg(table->name));
+    
+    if (!os_make_directory(table_dir))
+    {
+      log_error("failed to create/open table directory: %.*s", str8_varg(table_dir));
+      return 0;
+    }
+    
+    if (!gdb_table_save(table, table_dir))
     {
       log_error("failed to save table: %s", table->name.str);
       return 0;
@@ -135,22 +130,20 @@ gdb_database_load(String8 directory_path)
   
   database->name = push_str8_copy(database->arena, str8_skip_last_slash(str8_chop_last_slash(directory_path)));
   
-  OS_FileIter* it = os_file_iter_begin(scratch.arena, directory_path, 0);
+  OS_FileIter* it = os_file_iter_begin(scratch.arena, directory_path, OS_FileIterFlag_SkipFiles);
   U64 idx = 0;
   for(OS_FileInfo info = {0}; idx < 16384 && os_file_iter_next(scratch.arena, it, &info); idx += 1)
   {
-    if (str8_ends_with(info.name, str8_lit(".gdbt"), 0))
+    String8 table_dir = push_str8_cat(scratch.arena, directory_path, info.name);
+    String8 meta_path = push_str8f(scratch.arena, "%.*s/%.*s.meta", str8_varg(table_dir), str8_varg(info.name));
+    GDB_Table* table = gdb_table_load(table_dir, meta_path);
+    if (table)
     {
-      String8 file_path = push_str8_cat(scratch.arena, directory_path, info.name);
-      GDB_Table* table = gdb_table_load(file_path);
-      if (table)
-      {
-        gdb_database_add_table(database, table);
-      }
-      else
-      {
-        log_error("failed to load table: %s", file_path.size);
-      }
+      gdb_database_add_table(database, table);
+    }
+    else
+    {
+      log_error("failed to load table: %.*s", str8_varg(table_dir));
     }
   }
   
@@ -180,13 +173,26 @@ gdb_database_find_table(GDB_Database* database, String8 table_name)
   return NULL;
 }
 
+
+internal B32
+gdb_database_contains_table(GDB_Database* database, String8 table_name)
+{
+  for (U64 i = 0; i < database->table_count; i++)
+  {
+    if (str8_match(database->tables[i]->name, table_name, 0))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
 //~ tec: tables
-
-
 internal GDB_Table*
 gdb_table_alloc(String8 name)
 {
-  Arena* arena = arena_alloc(.reserve_size=MB(64), .commit_size=KB(64));
+  Arena* arena = arena_alloc(.reserve_size=GDB_TABLE_ARENA_RESERVE_SIZE, .commit_size=GDB_TABLE_ARENA_COMMIT_SIZE);
   GDB_Table* table = push_array(arena, GDB_Table, 1);
   
   table->name = name;
@@ -206,8 +212,8 @@ gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema)
 {
   if (table->column_count == 0)
   {
-    table->columns = push_array(table->arena, GDB_Column*, 8);
-    table->column_capacity = 8;
+    table->columns = push_array(table->arena, GDB_Column*, 2);
+    table->column_capacity = 2;
   }
   else if (table->column_count >= table->column_capacity)
   {
@@ -251,79 +257,95 @@ gdb_table_remove_row(GDB_Table* table, U64 row_index)
 }
 
 internal B32
-gdb_table_save(GDB_Table* table, String8 path)
+gdb_table_save(GDB_Table* table, String8 table_dir)
 {
-  OS_Handle file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write, path);
-  if (os_handle_match(os_handle_zero(), file))
-  {
-    log_error("failed to open table file: %s", path.str);
-    return 0;
-  }
-  
-  U64 file_size = sizeof(U64) * 2; // column_count + row_count
-  
-  for (U64 i = 0; i < table->column_count; i++)
-  {
-    GDB_Column* column = table->columns[i];
-    
-    // tec: meta size
-    file_size += sizeof(GDB_ColumnType) + sizeof(U64) * 2 + column->name.size;
-    
-    // tec: data size
-    if (column->type == GDB_ColumnType_String8)
-    {
-      file_size += column->variable_capacity + column->capacity * sizeof(U64);
-    }
-    else
-    {
-      file_size += column->capacity * column->size;
-    }
-  }
-  
+  //- tec: table meta file
   Temp scratch = scratch_begin(0, 0);
-  U8* write_ptr = push_array(scratch.arena, U8, file_size);
-  U8* buffer_start = write_ptr;
+  {
+    String8 meta_path = push_str8f(scratch.arena, "%.*s/%.*s.meta", str8_varg(table_dir), str8_varg(table->name));
+    OS_Handle meta_file = os_file_open(OS_AccessFlag_Write, meta_path);
+    if (os_handle_match(os_handle_zero(), meta_file))
+    {
+      log_error("Failed to open metadata file: %.*s", str8_varg(meta_path));
+      return 0;
+    }
+    
+    U64 meta_size = sizeof(U64) * 2;
+    for (U64 i = 0; i < table->column_count; i++)
+    {
+      GDB_Column* column = table->columns[i];
+      meta_size += sizeof(GDB_ColumnType) + (sizeof(U64) * 3) + column->name.size;
+    }
+    
+    U8* meta_buffer = push_array(scratch.arena, U8, meta_size);
+    U8* meta_ptr = meta_buffer;
+    
+    *(U64*)meta_ptr = table->column_count; meta_ptr += sizeof(U64);
+    *(U64*)meta_ptr = table->row_count; meta_ptr += sizeof(U64);
+    
+    for (U64 i = 0; i < table->column_count; i++)
+    {
+      GDB_Column* column = table->columns[i];
+      
+      *(GDB_ColumnType*)meta_ptr = column->type; meta_ptr += sizeof(GDB_ColumnType);
+      *(U64*)meta_ptr = column->size; meta_ptr += sizeof(U64);
+      *(U64*)meta_ptr = column->capacity; meta_ptr += sizeof(U64);
+      *(U64*)meta_ptr = column->name.size; meta_ptr += sizeof(U64);
+      MemoryCopy(meta_ptr, column->name.str, column->name.size);
+      meta_ptr += column->name.size;
+    }
+    
+    os_file_write(meta_file, r1u64(0, meta_size), meta_buffer);
+    os_file_close(meta_file);
+  }
+  scratch_end(scratch);
   
-  // tec: write table metadata
-  *(U64*)write_ptr = table->column_count; write_ptr += sizeof(U64);
-  *(U64*)write_ptr = table->row_count; write_ptr += sizeof(U64);
-  
-  // tec: write columns
+  //- tec: column files
+  scratch = scratch_begin(0, 0);
   for (U64 i = 0; i < table->column_count; i++)
   {
     GDB_Column* column = table->columns[i];
     
-    // tec: write column metadata
-    *(GDB_ColumnType*)write_ptr = column->type; write_ptr += sizeof(GDB_ColumnType);
-    *(U64*)write_ptr = column->size; write_ptr += sizeof(U64);
-    *(U64*)write_ptr = column->capacity; write_ptr += sizeof(U64);
-    *(U64*)write_ptr = column->name.size; write_ptr += sizeof(U64);
-    MemoryCopy(write_ptr, column->name.str, column->name.size);
-    write_ptr += column->name.size;
+    String8 column_path = push_str8f(scratch.arena, "%.*s/%.*s.dat", str8_varg(table_dir), str8_varg(column->name));
+    OS_Handle file = os_file_open(OS_AccessFlag_Write, column_path);
+    if (os_handle_match(os_handle_zero(), file))
+    {
+      log_error("Failed to open column file for saving: %.*s", str8_varg(column_path));
+      break;
+      //return 0;
+    }
     
-    // tec: write column data
     if (column->type == GDB_ColumnType_String8)
     {
-      *(U64*)write_ptr = column->variable_capacity; write_ptr += sizeof(U64);
+      U64 header_size = sizeof(U64);
+      U64 data_size = column->variable_capacity;
+      U64 offset_size = column->capacity * sizeof(U64);
+      U64 total_size = header_size + data_size + offset_size;
+      
+      U8* buffer = push_array(scratch.arena, U8, total_size);
+      U8* write_ptr = buffer;
+      
+      *(U64*)write_ptr = column->variable_capacity;
+      write_ptr += sizeof(U64);
       MemoryCopy(write_ptr, column->data, column->variable_capacity);
       write_ptr += column->variable_capacity;
       MemoryCopy(write_ptr, column->offsets, column->capacity * sizeof(U64));
-      write_ptr += column->capacity * sizeof(U64);
+      
+      os_file_write(file, r1u64(0, total_size), buffer);
     }
     else
     {
-      MemoryCopy(write_ptr, column->data, column->capacity * column->size);
-      write_ptr += column->capacity * column->size;
+      U64 data_size = column->capacity * column->size;
+      os_file_write(file, r1u64(0, data_size), column->data);
     }
+    
+    os_file_close(file);
   }
-  
-  os_file_write(file, r1u64(0, file_size), buffer_start);
-  os_file_close(file);
-  
   scratch_end(scratch);
   
   return 1;
 }
+
 
 internal B32
 gdb_table_export_csv(GDB_Table* table, String8 path)
@@ -395,25 +417,30 @@ gdb_table_export_csv(GDB_Table* table, String8 path)
 }
 
 internal GDB_Table*
-gdb_table_load(String8 path)
+gdb_table_load(String8 table_dir, String8 meta_path)
 {
   GDB_Table* table = gdb_table_alloc(str8_lit("temp"));
   
   Temp scratch = temp_begin(g_gdb_state->arena);
-  String8 file_data = os_data_from_file_path(scratch.arena, path);
-  U8* read_ptr = file_data.str;
+  String8 meta_data = os_data_from_file_path(scratch.arena, meta_path);
+  if (meta_data.size == 0)
+  {
+    log_error("Failed to read metadata: %.*s", str8_varg(meta_path));
+    return NULL;
+  }
   
-  // tec: read metadata
+  U8* read_ptr = meta_data.str;
+  
   table->column_count = *(U64*)read_ptr; read_ptr += sizeof(U64);
   table->row_count = *(U64*)read_ptr; read_ptr += sizeof(U64);
   
-  // tec: read columns
   table->columns = push_array(table->arena, GDB_Column*, table->column_count);
+  
   for (U64 i = 0; i < table->column_count; i++)
   {
     GDB_Column* column = gdb_column_alloc(str8_lit("temp"), 0, 0);
-    
     column->row_count = table->row_count;
+    
     column->type = *(GDB_ColumnType*)read_ptr; read_ptr += sizeof(GDB_ColumnType);
     column->size = *(U64*)read_ptr; read_ptr += sizeof(U64);
     column->capacity = *(U64*)read_ptr; read_ptr += sizeof(U64);
@@ -423,30 +450,161 @@ gdb_table_load(String8 path)
     MemoryCopy(column->name.str, read_ptr, column->name.size);
     read_ptr += column->name.size;
     
-    if (column->type == GDB_ColumnType_String8)
+    String8 column_path = push_str8f(scratch.arena, "%.*s/%.*s.dat", str8_varg(table_dir), str8_varg(column->name));
+    OS_Handle file = os_file_open(OS_AccessFlag_Read, column_path);
+    if (os_handle_match(os_handle_zero(), file))
     {
-      column->variable_capacity = *(U64*)read_ptr; read_ptr += sizeof(U64);
-      
-      column->data = push_array(table->arena, U8, column->variable_capacity);
-      MemoryCopy(column->data, read_ptr, column->variable_capacity);
-      read_ptr += column->variable_capacity;
-      
-      column->offsets = push_array(table->arena, U64, column->capacity);
-      MemoryCopy(column->offsets, read_ptr, column->capacity * sizeof(U64));
-      read_ptr += column->capacity * sizeof(U64);
+      log_error("Failed to open column file: %.*s", str8_varg(column_path));
+      break;
+      //return NULL;
+    }
+    
+    FileProperties props = os_properties_from_file(file);
+    
+    if (props.size > GDB_DISK_BACKED_THRESHOLD_SIZE)
+    {
+      column->is_disk_backed = 1;
+      column->disk_path = push_str8_copy(column->arena, column_path);
+      column->variable_capacity = props.size - (column->capacity * sizeof(U64));
     }
     else
     {
-      column->data = read_ptr;
-      read_ptr += column->capacity * column->size;
+      OS_Handle map = os_file_map_open(OS_AccessFlag_Read, file);
+      void* mapped_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(0, props.size));
+      
+      if (column->type == GDB_ColumnType_String8)
+      {
+        column->variable_capacity = *(U64*)mapped_ptr;
+        mapped_ptr = (U8*)mapped_ptr + sizeof(U64);
+        
+        column->data = push_array(table->arena, U8, column->variable_capacity);
+        MemoryCopy(column->data, mapped_ptr, column->variable_capacity);
+        mapped_ptr = (U8*)mapped_ptr + column->variable_capacity;
+        
+        column->offsets = push_array(table->arena, U64, column->capacity);
+        MemoryCopy(column->offsets, mapped_ptr, column->capacity * sizeof(U64));
+      }
+      else
+      {
+        column->data = push_array(table->arena, U8, column->capacity * column->size);
+        MemoryCopy(column->data, mapped_ptr, column->capacity * column->size);
+      }
+      
+      os_file_map_view_close(map, mapped_ptr, r1u64(0, props.size));
+      os_file_map_close(map);
+    }
+    os_file_close(file);
+    table->columns[i] = column;
+  }
+  
+  table->name = str8_skip_last_slash(table_dir);
+  temp_end(scratch);
+  
+  return table;
+}
+
+internal GDB_Table*
+gdb_table_load_large(String8 path, U64 chunk_size)
+{
+  GDB_Table* table = gdb_table_alloc(str8_lit("temp"));
+  
+  OS_Handle file = os_file_open(OS_AccessFlag_Read, path);
+  if (!os_file_path_exists(path)) return NULL;
+  
+  FileProperties props = os_properties_from_file_path(path);
+  U64 file_size = props.size;
+  
+  OS_Handle map = os_file_map_open(OS_AccessFlag_Read, file);
+  if (os_handle_match(os_handle_zero(), map)) return NULL;
+  
+  U64 offset = 0;
+  
+  // tec: read metadata using map view
+  void* metadata_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(0, 2 * sizeof(U64)));
+  table->column_count = *(U64*)metadata_ptr;
+  table->row_count = *(U64*)((U8*)metadata_ptr + sizeof(U64));
+  os_file_map_view_close(map, metadata_ptr, r1u64(0, 2 * sizeof(U64)));
+  offset += 2 * sizeof(U64);
+  
+  table->columns = push_array(table->arena, GDB_Column*, table->column_count);
+  
+  // tec: read columns
+  for (U64 i = 0; i < table->column_count; i++)
+  {
+    U64 column_header_size = sizeof(GDB_ColumnType) + 3 * sizeof(U64);
+    void* column_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + column_header_size));
+    
+    GDB_Column* column = gdb_column_alloc(str8_lit("temp"), 0, 0);
+    column->type = *(GDB_ColumnType*)column_ptr;
+    column->size = *(U64*)((U8*)column_ptr + sizeof(GDB_ColumnType));
+    column->capacity = *(U64*)((U8*)column_ptr + sizeof(GDB_ColumnType) + sizeof(U64));
+    column->row_count = table->row_count;
+    
+    U64 name_size = *(U64*)((U8*)column_ptr + sizeof(GDB_ColumnType) + 2 * sizeof(U64));
+    offset += column_header_size;
+    os_file_map_view_close(map, column_ptr, r1u64(offset - column_header_size, offset));
+    
+    // tec: read column name
+    void* name_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + name_size));
+    column->name.str = push_array(table->arena, U8, name_size);
+    MemoryCopy(column->name.str, name_ptr, name_size);
+    column->name.size = name_size;
+    os_file_map_view_close(map, name_ptr, r1u64(offset, offset + name_size));
+    offset += name_size;
+    
+    // tec: read data for String8 columns
+    if (column->type == GDB_ColumnType_String8)
+    {
+      void* string_meta_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + sizeof(U64)));
+      column->variable_capacity = *(U64*)string_meta_ptr;
+      os_file_map_view_close(map, string_meta_ptr, r1u64(offset, offset + sizeof(U64)));
+      offset += sizeof(U64);
+      
+      U64 data_chunk_size = (column->variable_capacity > chunk_size) ? chunk_size : column->variable_capacity;
+      column->data = push_array(table->arena, U8, column->variable_capacity);
+      U64 remaining_bytes = column->variable_capacity;
+      
+      for (U64 j = 0; j < column->variable_capacity; j += data_chunk_size)
+      {
+        U64 bytes_to_read = (remaining_bytes > data_chunk_size) ? data_chunk_size : remaining_bytes;
+        void* data_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + bytes_to_read));
+        MemoryCopy((U8*)column->data + j, data_ptr, bytes_to_read);
+        os_file_map_view_close(map, data_ptr, r1u64(offset, offset + bytes_to_read));
+        offset += bytes_to_read;
+        remaining_bytes -= bytes_to_read;
+      }
+      
+      void* offsets_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + column->capacity * sizeof(U64)));
+      column->offsets = push_array(table->arena, U64, column->capacity);
+      MemoryCopy(column->offsets, offsets_ptr, column->capacity * sizeof(U64));
+      os_file_map_view_close(map, offsets_ptr, r1u64(offset, offset + column->capacity * sizeof(U64)));
+      offset += column->capacity * sizeof(U64);
+    }
+    else
+    {
+      // tec: read fixed-size column data in chunks
+      U64 data_size = column->capacity * column->size;
+      U64 data_chunk_size = (data_size > chunk_size) ? chunk_size : data_size;
+      column->data = push_array(table->arena, U8, data_size);
+      U64 remaining_bytes = data_size;
+      
+      for (U64 j = 0; j < data_size; j += data_chunk_size)
+      {
+        U64 bytes_to_read = (remaining_bytes > data_chunk_size) ? data_chunk_size : remaining_bytes;
+        void* data_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(offset, offset + bytes_to_read));
+        MemoryCopy((U8*)column->data + j, data_ptr, bytes_to_read);
+        os_file_map_view_close(map, data_ptr, r1u64(offset, offset + bytes_to_read));
+        offset += bytes_to_read;
+        remaining_bytes -= bytes_to_read;
+      }
     }
     
     table->columns[i] = column;
   }
   
   table->name = str8_chop_last_dot(str8_skip_last_slash(path));
-  
-  temp_end(scratch);
+  os_file_map_close(map);
+  os_file_close(file);
   
   return table;
 }
@@ -586,7 +744,7 @@ gdb_table_find_column(GDB_Table* table, String8 column_name)
 internal GDB_Column*
 gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size)
 {
-  Arena* arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
+  Arena* arena = arena_alloc(.reserve_size=GDB_COLUMN_ARENA_RESERVE_SIZE, .commit_size=GDB_COLUMN_ARENA_COMMIT_SIZE);
   GDB_Column* column = push_array(arena, GDB_Column, 1);
   
   column->name = name;
@@ -610,86 +768,123 @@ gdb_column_add_data(GDB_Column* column, void* data)
   {
     String8* str = (String8*)data;
     
-    //- tec: grow offsets array if needed
-    if (column->row_count == column->capacity)
+    if (column->is_disk_backed)
     {
-      U64 new_capacity = (column->capacity > 0) ? column->capacity * 2 : GDB_COLUMN_EXPAND_COUNT;
-      U64* new_offsets = push_array(column->arena, U64, new_capacity);
-      if (column->offsets) 
+      OS_Handle file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write | OS_AccessFlag_Append, column->disk_path);
+      U64 offset = os_properties_from_file(file).size;
+      
+      U64 previous_offset = 0;
+      if (column->row_count > 0)
       {
-        MemoryCopy(new_offsets, column->offsets, column->row_count * sizeof(U64));
+        U64 offset_position = column->variable_capacity + (column->row_count - 1) * sizeof(U64);
+        os_file_read(file, r1u64(offset_position, offset_position + sizeof(U64)), &previous_offset);
       }
-      column->offsets = new_offsets;
-      column->capacity = new_capacity;
+      
+      os_file_write(file, r1u64(offset, offset + str->size), str->str);
+      
+      //- tec: calculate and write the new offset
+      U64 new_offset = previous_offset + str->size;
+      U64 offset_position = column->variable_capacity + column->row_count * sizeof(U64);
+      os_file_write(file, r1u64(offset_position, offset_position + sizeof(U64)), &new_offset);
+      
+      //- tec: update variable_capacity and close file
+      column->variable_capacity += str->size;
+      os_file_close(file);
     }
-    
-    //- tec: grow variable data if needed
-    U64 previous_offset = (column->row_count > 0) ? column->offsets[column->row_count - 1] : 0;
-    U64 required_size = previous_offset + str->size;
-    if (required_size > column->variable_capacity)
+    else
     {
-      U64 new_variable_capacity = (column->variable_capacity > 0) ? column->variable_capacity * 2 : KB(4);
-      while (new_variable_capacity < required_size)
+      //- tec: grow offsets array if needed
+      if (column->row_count == column->capacity)
       {
-        new_variable_capacity *= 2;
+        U64 new_capacity = (column->capacity > 0) ? column->capacity * 2 : GDB_COLUMN_EXPAND_COUNT;
+        U64* new_offsets = push_array(column->arena, U64, new_capacity);
+        if (column->offsets) 
+        {
+          MemoryCopy(new_offsets, column->offsets, column->row_count * sizeof(U64));
+        }
+        column->offsets = new_offsets;
+        column->capacity = new_capacity;
       }
-      U8* new_data = push_array(column->arena, U8, new_variable_capacity);
-      if (column->data) 
+      
+      //- tec: grow variable data if needed
+      U64 previous_offset = (column->row_count > 0) ? column->offsets[column->row_count - 1] : 0;
+      U64 required_size = previous_offset + str->size;
+      if (required_size > column->variable_capacity)
       {
-        MemoryCopy(new_data, column->data, column->variable_capacity);
+        U64 new_variable_capacity = (column->variable_capacity > 0) ? column->variable_capacity * 2 : GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE;
+        while (new_variable_capacity < required_size)
+        {
+          new_variable_capacity *= 2;
+        }
+        U8* new_data = push_array(column->arena, U8, new_variable_capacity);
+        if (column->data) 
+        {
+          MemoryCopy(new_data, column->data, column->variable_capacity);
+        }
+        column->data = new_data;
+        column->variable_capacity = new_variable_capacity;
       }
-      column->data = new_data;
-      column->variable_capacity = new_variable_capacity;
+      
+      if (column->row_count >= column->capacity) 
+      {
+        log_error("offset array out of bounds: row_count=%llu capacity=%llu", column->row_count, column->capacity);
+        //return;
+      }
+      
+      U64 current_offset = (column->row_count > 0) ? column->offsets[column->row_count - 1] : 0;
+      MemoryCopy(column->data + current_offset, str->str, str->size);
+      column->offsets[column->row_count] = current_offset + str->size;
     }
-    
-    if (column->row_count >= column->capacity) 
-    {
-      log_error("offset array out of bounds: row_count=%llu capacity=%llu", column->row_count, column->capacity);
-      //return;
-    }
-    
-    U64 current_offset = (column->row_count > 0) ? column->offsets[column->row_count - 1] : 0;
-    MemoryCopy(column->data + current_offset, str->str, str->size);
-    column->offsets[column->row_count] = current_offset + str->size;
   }
   else
   {
-    // tec: grow if needed
-    if (column->row_count == column->capacity)
+    if (column->is_disk_backed)
     {
-      // tec: check that an absurdly large buffer is not being allocated
-      if (column->capacity > (max_U64 / 2))
-      {
-        log_error("column capacity too large, can not allocate");
-        return;
-      }
-      
-      // tec: cap capacity
-      U64 new_capacity = (column->capacity > 0) ? column->capacity * 2 : GDB_COLUMN_EXPAND_COUNT;
-      if (new_capacity > column->capacity + MB(64))
-      {
-        new_capacity = column->capacity + MB(64);
-      }
-      //log_debug("growing column: old_capacity=%llu, new_capacity=%llu, size=%llu", column->capacity, new_capacity, column->size);
-      
-      U8* new_data = arena_push(column->arena, new_capacity * column->size, 8);
-      if (new_data == 0)
-      {
-        log_error("failed to allocate memory in arena");
-        return;
-      }
-      
-      if (column->capacity > 0 && column->data)
-      {
-        MemoryCopy(new_data, column->data, column->capacity * column->size);
-      }
-      column->data = new_data;
-      column->capacity = new_capacity;
+      OS_Handle file = os_file_open(OS_AccessFlag_Write | OS_AccessFlag_Append, column->disk_path);
+      U64 offset = column->row_count * column->size;
+      os_file_write(file, r1u64(offset, offset + column->size), data);
+      os_file_close(file);
     }
-    
-    // tec: add data
-    MemoryCopy(column->data + column->row_count * column->size, data, column->size);
+    else
+    {
+      // tec: grow if needed
+      if (column->row_count == column->capacity)
+      {
+        // tec: check that an absurdly large buffer is not being allocated
+        if (column->capacity > (max_U64 / 2))
+        {
+          log_error("column capacity too large, can not allocate");
+          return;
+        }
+        
+        // tec: cap capacity
+        U64 new_capacity = (column->capacity > 0) ? column->capacity * 2 : GDB_COLUMN_EXPAND_COUNT;
+        if (new_capacity > column->capacity + GDB_COLUMN_MAX_GROW_BY_SIZE)
+        {
+          new_capacity = column->capacity + GDB_COLUMN_MAX_GROW_BY_SIZE;
+        }
+        //log_debug("growing column: old_capacity=%llu, new_capacity=%llu, size=%llu", column->capacity, new_capacity, column->size);
+        
+        U8* new_data = arena_push(column->arena, new_capacity * column->size, 8);
+        if (new_data == 0)
+        {
+          log_error("failed to allocate memory in arena");
+          return;
+        }
+        
+        if (column->capacity > 0 && column->data)
+        {
+          MemoryCopy(new_data, column->data, column->capacity * column->size);
+        }
+        column->data = new_data;
+        column->capacity = new_capacity;
+      }
+      
+      // tec: add data
+      MemoryCopy(column->data + column->row_count * column->size, data, column->size);
+    }
   }
+  
   column->row_count++;
 }
 
@@ -699,6 +894,12 @@ gdb_column_remove_data(GDB_Column* column, U64 row_index)
   if (row_index >= column->row_count)
   {
     log_error("column row index out of bounds: %llu", row_index);
+    return;
+  }
+  
+  if (column->is_disk_backed)
+  {
+    log_error("removing data from disk-backed column is not supported");
     return;
   }
   
@@ -727,7 +928,25 @@ gdb_column_remove_data(GDB_Column* column, U64 row_index)
 internal void*
 gdb_column_get_data(GDB_Column* column, U64 index)
 {
-  return (void*)(column->data + index * column->size);
+  if (index >= column->row_count)
+  {
+    log_error("index out of bounds");
+    return NULL;
+  }
+  
+  if (column->is_disk_backed)
+  {
+    U64 offset = index * column->size;
+    OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+    void* data = arena_push(column->arena, column->size, 8);
+    os_file_read(file, r1u64(offset, offset + column->size), data);
+    os_file_close(file);
+    return data;
+  }
+  else
+  {
+    return (void*)(column->data + index * column->size);
+  }
 }
 
 internal String8
@@ -742,13 +961,36 @@ gdb_column_get_string(GDB_Column* column, U64 index)
   
   if (column->type == GDB_ColumnType_String8)
   {
-    U64 start = (index > 0) ? column->offsets[index - 1] : 0;
-    U64 end = column->offsets[index];
-    
-    if (start < end && end <= column->variable_capacity)
+    if (column->is_disk_backed)
     {
-      result.str = column->data + start;
-      result.size = end - start;
+      OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+      
+      U64 offset_position = column->variable_capacity + index * sizeof(U64);
+      U64 start_offset = 0, end_offset = 0;
+      
+      if (index > 0)
+      {
+        os_file_read(file, r1u64(offset_position - sizeof(U64), offset_position), &start_offset);
+      }
+      os_file_read(file, r1u64(offset_position, offset_position + sizeof(U64)), &end_offset);
+      
+      U64 size = end_offset - start_offset;
+      result.str = arena_push(column->arena, size, 8);
+      os_file_read(file, r1u64(start_offset, start_offset + size), result.str);
+      result.size = size;
+      
+      os_file_close(file);
+    }
+    else
+    {
+      U64 start = (index > 0) ? column->offsets[index - 1] : 0;
+      U64 end = column->offsets[index];
+      
+      if (start < end && end <= column->variable_capacity)
+      {
+        result.str = column->data + start;
+        result.size = end - start;
+      }
     }
   }
   
@@ -809,8 +1051,9 @@ gdb_column_schema_create(String8 name, GDB_ColumnType type)
 internal GDB_ColumnType
 gdb_infer_column_type(String8 value)
 {
-  if (value.size == 0 || str8_match(value, str8_lit("NULL"), StringMatchFlag_CaseInsensitive))
+  if (!value.str || value.size == 0 || str8_match(value, str8_lit("NULL"), StringMatchFlag_CaseInsensitive))
   {
+    log_error("could not infer column type, string is invalid");
     return GDB_ColumnType_Invalid;
   }
   

@@ -44,6 +44,7 @@ global String8 g_sql_keywords[] =
   str8_lit_comp("use"),
   str8_lit_comp("into"),
   str8_lit_comp("insert"),
+  str8_lit_comp("import"),
   str8_lit_comp("create"),
   str8_lit_comp("drop"),
   str8_lit_comp("table"),
@@ -105,6 +106,7 @@ typedef enum SQL_NodeType
   SQL_NodeType_Identifier,
   SQL_NodeType_Literal,
   SQL_NodeType_Insert,
+  SQL_NodeType_Import,
   SQL_NodeType_Delete,
   SQL_NodeType_Create,
   SQL_NodeType_Drop,
@@ -140,6 +142,7 @@ internal SQL_Node* sql_parse_select_clause(Arena* arena, SQL_Token **tokens, U64
 internal SQL_Node* sql_parse_from_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
 internal SQL_Node* sql_parse_where_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
 internal SQL_Node* sql_parse_insert_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
+internal SQL_Node* sql_parse_import_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
 internal SQL_Node* sql_parse_create_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
 internal SQL_Node* sql_parse_alter_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);
 internal SQL_Node* sql_parse_delete_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 token_count);

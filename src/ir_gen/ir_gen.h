@@ -19,6 +19,7 @@ typedef enum IR_NodeType
   IR_NodeType_Ascending,
   IR_NodeType_Descending,
   IR_NodeType_Insert,
+  IR_NodeType_Import,
   IR_NodeType_Value,
   IR_NodeType_ValueGroup,
   IR_NodeType_ColumnList,

@@ -29,9 +29,23 @@ if variable width data
 offsets - U64*
 
 */
+#define GDB_STATE_ARENA_RESERVE_SIZE GB(1)
+#define GDB_STATE_ARENA_COMMIT_SIZE MB(32)
+
+#define GDB_DATABASE_ARENA_RESERVE_SIZE KB(64)
+#define GDB_DATABASE_ARENA_COMMIT_SIZE KB(4)
+
+#define GDB_TABLE_ARENA_RESERVE_SIZE MB(1)
+#define GDB_TABLE_ARENA_COMMIT_SIZE KB(32)
+#define GDB_TABLE_EXPAND_FACTOR 2.0f
 
 #define GDB_COLUMN_EXPAND_COUNT 64
-#define GDB_TABLE_EXPAND_FACTOR 2
+#define GDB_COLUMN_ARENA_RESERVE_SIZE GB(1)
+#define GDB_COLUMN_ARENA_COMMIT_SIZE MB(32)
+#define GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE KB(1)
+#define GDB_COLUMN_MAX_GROW_BY_SIZE MB(64)
+
+#define GDB_DISK_BACKED_THRESHOLD_SIZE 8
 
 typedef U32 GDB_ColumnType;
 enum
@@ -78,6 +92,12 @@ struct GDB_Column
   // tec: data storage
   U8 *data;
   U64 *offsets;
+  
+  // tec:
+  B32 is_disk_backed;
+  String8 disk_path;
+  OS_Handle file_map;
+  void* mapped_ptr;
 };
 
 typedef struct GDB_Table GDB_Table;
@@ -131,10 +151,9 @@ internal void gdb_table_release(GDB_Table* table);
 internal void gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema);
 internal void gdb_table_add_row(GDB_Table* table, void** row_data);
 internal void gdb_table_remove_row(GDB_Table* table, U64 row_index);
-internal B32 gdb_table_save(GDB_Table* table, String8 path);
+internal B32 gdb_table_save(GDB_Table* table, String8 table_dir);
 internal B32 gdb_table_export_csv(GDB_Table* table, String8 path);
-internal GDB_Table* gdb_table_load(String8 path);
-//internal GDB_Table* gdb_table_import_csv(String8 path, GDB_ColumnType* column_types, U64 column_type_count);
+internal GDB_Table* gdb_table_load(String8 table_dir, String8 meta_path);
 internal GDB_Table* gdb_table_import_csv(String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
 
