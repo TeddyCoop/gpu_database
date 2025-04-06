@@ -243,7 +243,7 @@ app_execute_query(String8 sql_query)
           */
           String8 filepath = push_str8f(scratch.arena, "data/%.*s", 
                                         (U32)import_file_node->value.size, import_file_node->value.str);
-          GDB_Table* table = gdb_table_import_csv(filepath);
+          GDB_Table* table = gdb_table_import_csv(database, filepath);
           table->name = push_str8_copy(table->arena, table->name);
           scratch_end(scratch);
           gdb_database_add_table(database, table);
@@ -257,6 +257,8 @@ app_execute_query(String8 sql_query)
         APP_KernelResult result = app_perform_kernel(arena, kernel_name, database, ir_execution_node);
         IR_Node* select_output_columns = ir_node_find_child(ir_execution_node, IR_NodeType_ColumnList);
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
+        
+        Temp scratch = scratch_begin(0, 0);
         for (U64 i = 0; i < result.count; i++)
         {
           U64 row_index = i;
@@ -283,7 +285,7 @@ app_execute_query(String8 sql_query)
                 break;
                 case GDB_ColumnType_String8: 
                 {
-                  String8 str = gdb_column_get_string(column, row_index);
+                  String8 str = gdb_column_get_string(scratch.arena, column, row_index);
                   printf("%.*s ", str8_varg(str));
                 } break;
                 default:
@@ -293,6 +295,7 @@ app_execute_query(String8 sql_query)
             }
             printf("\n");
           }
+          scratch_end(scratch);
         }
 #if 0
         String8List active_columns = { 0 };
@@ -426,17 +429,6 @@ app_execute_query(String8 sql_query)
   gdb_database_save(database, database_filepath);
   
   //test_print_database(database);
-  
-  GDB_Table* table = gdb_database_find_table(database, str8_lit("customers"));
-  if (table)
-  {
-    GDB_Column* col = gdb_table_find_column(table, str8_lit("id"));
-    if (col)
-    {
-      void* data = gdb_column_get_data(col, 1);
-      log_info("data %u", *(U32*)data);
-    }
-  }
   
   arena_release(arena);
 }

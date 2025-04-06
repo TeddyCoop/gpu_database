@@ -6,6 +6,7 @@
 #include "ir_gen/ir_gen_inc.h"
 #include "gpu/gpu_inc.h"
 #include "application.h"
+#include "thread_pool/thread_pool.h"
 
 internal void test_print_database(GDB_Database *database);
 
@@ -22,45 +23,46 @@ log_info("%s took:: %llu milliseconds", #name, __prof_elapsed_##name / 1000);
 #include "ir_gen/ir_gen_inc.c"
 #include "gdb/gdb_inc.c"
 #include "application.c"
+#include "thread_pool/thread_pool.c"
 
 internal void
 test_print_database(GDB_Database *database) 
 {
   if (!database)
   {
-    printf("Database is NULL.\n");
+    fprintf(stderr, "Database is NULL.\n");
     return;
   }
   
-  printf("Database: %.*s\n", (U32)database->name.size, database->name.str);
-  printf("Tables: %llu\n", database->table_count);
+  fprintf(stderr, "Database: %.*s\n", (U32)database->name.size, database->name.str);
+  fprintf(stderr, "Tables: %llu\n", database->table_count);
   
   for (U64 i = 0; i < database->table_count; ++i)
   {
     GDB_Table *table = database->tables[i];
     if (!table)
     {
-      printf("  Table %llu is NULL.\n", i);
+      fprintf(stderr, "  Table %llu is NULL.\n", i);
       continue;
     }
     
-    printf("  Table %llu: %.*s\n", i, (U32)table->name.size, table->name.str);
-    printf("    Columns: %llu\n", table->column_count);
-    printf("    Rows: %llu\n", table->row_count);
+    fprintf(stderr, "  Table %llu: %.*s\n", i, (U32)table->name.size, table->name.str);
+    fprintf(stderr, "    Columns: %llu\n", table->column_count);
+    fprintf(stderr, "    Rows: %llu\n", table->row_count);
     
     for (U64 j = 0; j < table->column_count; ++j) 
     {
       GDB_Column *column = table->columns[j];
-      printf("      Column %llu: %.*s (Type: %.*s, Size: %llu, Rows: %llu)\n",
-             j,
-             (U32)column->name.size, column->name.str,
-             str8_varg(string_from_gdb_column_type(column->type)),
-             column->size,
-             column->row_count);
+      fprintf(stderr, "      Column %llu: %.*s (Type: %.*s, Size: %llu, Rows: %llu)\n",
+              j,
+              (U32)column->name.size, column->name.str,
+              str8_varg(string_from_gdb_column_type(column->type)),
+              column->size,
+              column->row_count);
       
       if (column->type == GDB_ColumnType_String8) 
       {
-        printf("        Data: [");
+        fprintf(stderr, "        Data: [");
         for (U64 k = 0; k < column->row_count; ++k) 
         {
           /*
@@ -73,39 +75,41 @@ test_print_database(GDB_Database *database)
             .str = column->variable_data + offset,
             .size = (k + 1 < column->row_count) ? column->offsets[k + 1] - offset : column->size - offset
           };
-          printf("\"%.*s\"", (U32)str.size, str.str);
+          fprintf("\"%.*s\"", (U32)str.size, str.str);
           */
-          //printf("\"%s\"", str.str);
-          String8 str = gdb_column_get_string(column, k);
-          printf("\"%.*s\"", str8_varg(str));
-          if (k < column->row_count - 1) printf(", ");
+          //fprintf("\"%s\"", str.str);
+          Temp scratch = scratch_begin(0, 0);
+          String8 str = gdb_column_get_string(scratch.arena, column, k);
+          fprintf(stderr, "\"%.*s\"", str8_varg(str));
+          if (k < column->row_count - 1) fprintf(stderr, ", ");
+          scratch_end(scratch);
         }
-        printf("]\n");
+        fprintf(stderr, "]\n");
       }
       else
       {
-        printf("        Data: [");
+        fprintf(stderr, "        Data: [");
         for (U64 k = 0; k < column->row_count; ++k) 
         {
           if (column->type == GDB_ColumnType_U32)
           {
-            printf("%u", ((U32 *)column->data)[k]);
+            fprintf(stderr, "%u", ((U32 *)column->data)[k]);
           }
           else if (column->type == GDB_ColumnType_U64)
           {
-            printf("%llu", ((U64 *)column->data)[k]);
+            fprintf(stderr, "%llu", ((U64 *)column->data)[k]);
           } 
           else if (column->type == GDB_ColumnType_F32)
           {
-            printf("%0.2f", ((F32*)column->data)[k]);
+            fprintf(stderr, "%0.2f", ((F32*)column->data)[k]);
           }
           else if (column->type == GDB_ColumnType_F64) 
           {
-            printf("%lf", ((F64*)column->data)[k]);
+            fprintf(stderr, "%lf", ((F64*)column->data)[k]);
           }
-          if (k < column->row_count - 1) printf(", ");
+          if (k < column->row_count - 1) fprintf(stderr, ", ");
         }
-        printf("]\n");
+        fprintf(stderr, "]\n");
       }
     }
   }
@@ -179,13 +183,25 @@ entry_point(void)
                                                   "(4, 'Danny', 65, 'dannybrown@example.com', 190000.00);\n"
                                                   );
     
-    String8 query = str8_lit(
-                             "CREATE DATABASE human_to_ai_text;"
-                             "IMPORT INTO text FROM 'human_to_ai_text_dataset.csv';"
-                             );
+    String8 human_ai_query = str8_lit(
+                                      "CREATE DATABASE human_to_ai_text;"
+                                      "IMPORT INTO text FROM 'human_to_ai_text_dataset.csv';"
+                                      );
+    String8 pets_query = str8_lit(
+                                  "CREATE DATABASE adoptable_pets;"
+                                  "IMPORT INTO Adoptable_Pets FROM 'Adoptable_Pets.csv';"
+                                  );
+    
+    String8 real_estate_query = str8_lit(
+                                         "CREATE DATABASE real_estate;"
+                                         "IMPORT INTO real_estate FROM 'real_estate_big.csv';"
+                                         );
     
     //app_execute_query(create_test_database_query);
-    app_execute_query(use_retail_query);
+    //app_execute_query(use_retail_query);
+    //app_execute_query(human_ai_query);
+    app_execute_query(pets_query);
+    //app_execute_query(real_estate_query);
   }
   ProfCodeEnd(entry_point)
 }

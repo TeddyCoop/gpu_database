@@ -206,6 +206,7 @@ internal void os_abort(S32 exit_code);
 internal OS_Handle      os_file_open(OS_AccessFlags flags, String8 path);
 internal void           os_file_close(OS_Handle file);
 internal U64            os_file_read(OS_Handle file, Rng1U64 rng, void *out_data);
+internal void           os_file_resize(OS_Handle file, U64 size);
 internal U64            os_file_write(OS_Handle file, Rng1U64 rng, void *data);
 internal B32            os_file_set_times(OS_Handle file, DateTime time);
 internal FileProperties os_properties_from_file(OS_Handle file);

@@ -317,6 +317,7 @@ os_file_open(OS_AccessFlags flags, String8 path)
     DWORD error = GetLastError();
     log_error("CreateFileW failed - Code: %lu", error);
   }
+  //log_debug("opening file %.*s", str8_varg(path));
   scratch_end(scratch);
   return result;
 }
@@ -364,6 +365,26 @@ os_file_read(OS_Handle file, Rng1U64 rng, void *out_data)
   }
   
   return total_read_size;
+}
+
+internal void
+os_file_resize(OS_Handle file, U64 size)
+{
+  if(os_handle_match(file, os_handle_zero())) { return; }
+  HANDLE handle = (HANDLE)file.u64[0];
+  
+  LARGE_INTEGER distance;
+  distance.QuadPart = size;
+  
+  if (!SetFilePointerEx(handle, distance, 0, FILE_BEGIN))
+  {
+    //return 0; // Failed to move pointer
+  }
+  
+  if (!SetEndOfFile(handle))
+  {
+    //return 0; // Failed to resize
+  }
 }
 
 internal U64
@@ -668,6 +689,11 @@ os_file_map_view_open(OS_Handle map, OS_AccessFlags flags, Rng1U64 range)
     }
   }
   void *result = MapViewOfFile(handle, access_flags, off_hi, off_lo, size);
+  if (!result)
+  {
+    DWORD error = GetLastError();
+    log_error("MapViewOfFile failed - Code: %lu", error);
+  }
   return result;
 }
 
@@ -1107,13 +1133,24 @@ os_mutex_release(OS_Handle mutex)
 internal void
 os_mutex_take(OS_Handle mutex)
 {
+  //log_info("take");
   OS_W32_Entity *entity = (OS_W32_Entity*)PtrFromInt(mutex.u64[0]);
-  EnterCriticalSection(&entity->mutex);
+  //EnterCriticalSection(&entity->mutex);
+  if (TryEnterCriticalSection(&entity->mutex))
+  {
+    // got it
+  }
+  else
+  {
+    log_info("Thread %llu waiting on mutex...\n", GetCurrentThreadId());
+    EnterCriticalSection(&entity->mutex);
+  }
 }
 
 internal void
 os_mutex_drop(OS_Handle mutex)
 {
+  //log_info("dropped");
   OS_W32_Entity *entity = (OS_W32_Entity*)PtrFromInt(mutex.u64[0]);
   LeaveCriticalSection(&entity->mutex);
 }

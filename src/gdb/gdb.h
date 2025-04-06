@@ -42,11 +42,15 @@ offsets - U64*
 #define GDB_COLUMN_EXPAND_COUNT 64
 #define GDB_COLUMN_ARENA_RESERVE_SIZE GB(1)
 #define GDB_COLUMN_ARENA_COMMIT_SIZE MB(32)
-#define GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE KB(1)
+#define GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE KB(32)
 #define GDB_COLUMN_MAX_GROW_BY_SIZE MB(64)
 
 //#define GDB_DISK_BACKED_THRESHOLD_SIZE MB(256)
+//#define GDB_DISK_BACKED_THRESHOLD_SIZE KB(16)
 #define GDB_DISK_BACKED_THRESHOLD_SIZE 256
+
+#define GDB_CSV_CHUNK_SIZE KB(1)
+#define GDB_CSV_THREAD_COUNT 2
 
 typedef U32 GDB_ColumnType;
 enum
@@ -103,11 +107,17 @@ struct GDB_Column
   U8 *data;
   U64 *offsets;
   
-  // tec:
+  // tec: disk backed
   B32 is_disk_backed;
   String8 disk_path;
+  OS_Handle file;
   OS_Handle file_map;
   void* mapped_ptr;
+  
+  // tec: mutex
+  OS_Handle mutex;
+  
+  struct GDB_Table* parent_table;
 };
 
 typedef struct GDB_Table GDB_Table;
@@ -120,6 +130,8 @@ struct GDB_Table
   U64 column_capacity;
   U64 row_count;
   GDB_Column** columns;
+  
+  struct GDB_Database* parent_database;
 };
 
 typedef struct GDB_Database GDB_Database;
@@ -141,6 +153,8 @@ struct GDB_State
   GDB_Database** databases;
   U64 database_count;
   U64 database_capacity;
+  
+  OS_Handle rw_mutex;
 };
 
 global GDB_State* g_gdb_state = 0;
@@ -164,18 +178,22 @@ internal void gdb_table_remove_row(GDB_Table* table, U64 row_index);
 internal B32 gdb_table_save(GDB_Table* table, String8 table_dir);
 internal B32 gdb_table_export_csv(GDB_Table* table, String8 path);
 internal GDB_Table* gdb_table_load(String8 table_dir, String8 meta_path);
-internal GDB_Table* gdb_table_import_csv(String8 path);
+internal GDB_Table* gdb_table_import_csv(GDB_Database* database, String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
 
 internal GDB_Column* gdb_column_alloc(String8 name, GDB_ColumnType type, U64 size);
 internal void gdb_column_release(GDB_Column* column);
+internal void gdb_column_add_data_disk_backed(GDB_Column* column, void* data);
 internal void gdb_column_add_data(GDB_Column* column, void* data);
 internal void gdb_column_remove_data(GDB_Column* column, U64 row_index);
 internal void* gdb_column_get_data(GDB_Column* column, U64 index);
-internal String8 gdb_column_get_string(GDB_Column* column, U64 index);
+internal String8 gdb_column_get_string(Arena* arena, GDB_Column* column, U64 index);
 internal U64 gdb_column_get_total_size(GDB_Column* column);
 internal void* gdb_column_get_data_range(Arena* arena, GDB_Column* column, Rng1U64 row_range, U64* out_size);
 internal GDB_StringDataChunk gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range);
+internal String8 gdb_generate_disk_path_for_column(Arena* arena, GDB_Column* column);
+internal void gdb_column_convert_to_disk_backed(GDB_Column* column);
+internal void gdb_column_close(GDB_Column* column);
 
 internal GDB_ColumnType gdb_column_type_from_string(String8 str);
 internal String8 string_from_gdb_column_type(GDB_ColumnType type);

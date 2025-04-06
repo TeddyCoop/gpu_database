@@ -119,17 +119,13 @@ arena_push(Arena *arena, U64 size, U64 align)
     
     U64 cmt_size = cmt_pst_clamped - current->cmt;
     
-    log_debug("Commit Debug: pos_pst=%llu, cmt_pst_aligned=%llu (adjusted=%llu), current->res=%llu, current->cmt=%llu",pos_pst, cmt_pst_aligned, current->res, current->cmt);
+    //log_debug("Commit Debug: pos_pst=%llu, cmt_pst_aligned=%llu (adjusted=%llu), current->res=%llu, current->cmt=%llu",pos_pst, cmt_pst_aligned, current->res, current->cmt);
     if (cmt_size > 0)
     {
       if (!os_commit((U8 *)current + current->cmt, cmt_size))
       {
         log_error("os_commit failed to allocate memory");
       }
-    }
-    else
-    {
-      //log_error("commit size was 0");
     }
     current->cmt = cmt_pst_clamped;
   }
