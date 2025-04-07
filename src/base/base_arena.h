@@ -60,8 +60,8 @@ struct Temp
 ////////////////////////////////
 //~ tec: Global Defaults
 
-global U64 arena_default_reserve_size = MB(64);
-global U64 arena_default_commit_size  = KB(64);
+global U64 arena_default_reserve_size = MB(128);
+global U64 arena_default_commit_size  = KB(16);
 global ArenaFlags arena_default_flags = 0;
 
 ////////////////////////////////

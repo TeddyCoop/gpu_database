@@ -49,7 +49,7 @@ offsets - U64*
 //#define GDB_DISK_BACKED_THRESHOLD_SIZE KB(16)
 #define GDB_DISK_BACKED_THRESHOLD_SIZE 256
 
-#define GDB_CSV_CHUNK_SIZE KB(1)
+#define GDB_CSV_CHUNK_SIZE KB(64)
 #define GDB_CSV_THREAD_COUNT 2
 
 typedef U32 GDB_ColumnType;
@@ -113,9 +113,6 @@ struct GDB_Column
   OS_Handle file;
   OS_Handle file_map;
   void* mapped_ptr;
-  
-  // tec: mutex
-  OS_Handle mutex;
   
   struct GDB_Table* parent_table;
 };

@@ -200,8 +200,8 @@ entry_point(void)
     //app_execute_query(create_test_database_query);
     //app_execute_query(use_retail_query);
     //app_execute_query(human_ai_query);
-    app_execute_query(pets_query);
-    //app_execute_query(real_estate_query);
+    //app_execute_query(pets_query);
+    app_execute_query(real_estate_query);
   }
   ProfCodeEnd(entry_point)
 }
