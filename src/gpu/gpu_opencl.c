@@ -1,4 +1,3 @@
-
 internal cl_mem_flags
 gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
 {
@@ -10,6 +9,7 @@ gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
   if (flags & GPU_BufferFlag_HostVisible) result |= CL_MEM_ALLOC_HOST_PTR;
   if (flags & GPU_BufferFlag_HostCached) result |= CL_MEM_USE_HOST_PTR;
   if (flags & GPU_BufferFlag_ZeroCopy) result |= CL_MEM_USE_HOST_PTR;
+  if (flags & GPU_BufferFlag_CopyHostPointer) result |= CL_MEM_COPY_HOST_PTR;
   
   return result;
 }
@@ -130,7 +130,6 @@ gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 {
   ProfCodeBegin(clEnqueueReadBuffer);
   {
-    
     clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
   }
   ProfCodeEnd(clEnqueueReadBuffer);
@@ -151,7 +150,7 @@ gpu_kernel_alloc(String8 name, String8 src)
   
   if (ret != CL_SUCCESS) 
   {
-    log_error("failed to create kernel \'%s\'", kernel->name.str);
+    log_error("failed to create kernel \'%.*s\'", str8_varg(kernel->name));
     return NULL;
   }
   
@@ -209,41 +208,55 @@ gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
 }
 
 //~ tec: kernel generation
-
-/*
 global String8 g_gpu_opencl_str_match_code =
 str8_lit_comp(
-              "int gpu_strcmp(\n"
-              "  __global const char* data, __global const uint* offsets, uint row_index,\n"
+              "int gpu_str_match(\n"
+              "  __global const char* data, __global const ulong* offsets, ulong row_index, ulong row_count,\n"
               "  __constant const char* compare_str, int compare_size) {\n"
-              "    uint offset = offsets[row_index];\n"
-              "    for (uint i = 0; i < compare_size; i++) {\n"
-              "      if (data[offset + i] != compare_str[i]) {\n"
-              "        return 0;\n"
-              "      }\n"
-              "    }\n"
               "\n"
-              "  return 1;\n"
-              "}\n"
-              );
-*/
-global String8 g_gpu_opencl_str_match_code =
-str8_lit_comp(
-              "int gpu_strcmp(\n"
-              "  __global const char* data, __global const ulong* offsets, ulong row_index,\n"
-              "  __constant const char* compare_str, int compare_size) {\n"
-              "    \n"
-              "    ulong start = (row_index == 0) ? 0 : offsets[row_index - 1];\n"
+              "    ulong start = offsets[row_index];\n"
+              "    ulong end = offsets[row_index+1];\n"
+              "    ulong str_size = end - start;\n"
+              "    printf(\"compare_size %lu | size %lu\", (ulong)compare_size, str_size);\n"
+              "    if (str_size != (ulong)compare_size) return 0;\n"
               "\n"
-              "    for (ulong i = 0; i < compare_size; i++) {\n"
+              "    for (ulong i = 0; i < str_size; i++) {\n"
               "        if ((char)data[start + i] != (char)compare_str[i]) {\n"
-              "            return 0; // Mismatch\n"
+              "            return 0;\n"
               "        }\n"
               "    }\n"
               "\n"
-              "    return 1; // Match\n"
+              "    return 1;\n"
               "}\n"
               );
+
+global String8 g_gpu_opencl_str_contains_code =
+str8_lit_comp(
+              "int gpu_str_contains(\n"
+              "  __global const char* data, __global const ulong* offsets, ulong row_index,\n"
+              "  __constant const char* compare_str, int compare_size) {\n"
+              "    \n"
+              "    ulong start = offsets[row_index];\n"
+              "    ulong end   = offsets[row_index+1];\n"
+              "    ulong str_size = end - start;\n"
+              "    \n"
+              "    if (compare_size > str_size) return 0;\n"
+              "    \n"
+              "    for (ulong i = 0; i <= str_size - compare_size; i++) {\n"
+              "        int match = 1;\n"
+              "        for (int j = 0; j < compare_size; j++) {\n"
+              "            if ((char)data[start + i + j] != (char)compare_str[j]) {\n"
+              "                match = 0;\n"
+              "                break;\n"
+              "            }\n"
+              "        }\n"
+              "        if (match) return 1;\n"
+              "    }\n"
+              "    \n"
+              "    return 0;\n"
+              "}\n"
+              );
+
 
 
 internal String8
@@ -292,9 +305,17 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
     {
       if (right->type == IR_NodeType_Literal)
       {
-        if (str8_match(condition->value, str8_lit("="), 0))
+        if (str8_match(condition->value, str8_lit("=="), 0))
         {
-          str8_list_pushf(arena, builder, "gpu_strcmp(%.*s_data, %.*s_offsets, i, \"%.*s\", %llu)",
+          str8_list_pushf(arena, builder, "gpu_str_match(%.*s_data, %.*s_offsets, i, row_count, \"%.*s\", %llu)",
+                          (int)left->value.size, left->value.str,
+                          (int)left->value.size, left->value.str,
+                          (int)right->value.size, right->value.str,
+                          right->value.size);
+        }
+        else if (str8_match(condition->value, str8_lit("contains"), StringMatchFlag_CaseInsensitive))
+        {
+          str8_list_pushf(arena, builder, "gpu_str_contains(%.*s_data, %.*s_offsets, i, \"%.*s\", %llu)",
                           (int)left->value.size, left->value.str,
                           (int)left->value.size, left->value.str,
                           (int)right->value.size, right->value.str,
@@ -334,7 +355,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   IR_Node* table_node = ir_node_find_child(select_ir_node, IR_NodeType_Table);
   if (!table_node)
   {
-    log_error("'select' statement is missing a table");
+    log_error("kernel is missing a table");
     return str8_lit("");
   }
   
@@ -349,15 +370,16 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     }
   }
   
+  str8_list_push(arena, &builder, str8_lit("#pragma OPENCL EXTENSION cl_amd_printf : enable\n"));
   if (contains_string_column)
   {
     str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
+    str8_list_push(arena, &builder, g_gpu_opencl_str_contains_code);
   }
   str8_list_push(arena, &builder, str8_lit("\n"));
   str8_list_push(arena, &builder, str8_lit("__kernel void "));
   str8_list_push(arena, &builder, kernel_name);
   str8_list_push(arena, &builder, str8_lit("(\n"));
-  //query(\n"));
   
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {
@@ -383,26 +405,26 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     }
   }
   
-  // Extract WHERE clause
   IR_Node* where_clause = ir_node_find_child(select_ir_node, IR_NodeType_Where);
   
   str8_list_push(arena, &builder, str8_lit("__global ulong* output_indices,\n"));
+  //str8_list_push(arena, &builder, str8_lit("__global atomic_ulong* output_count,\n"));
+  str8_list_push(arena, &builder, str8_lit("volatile __global ulong* output_count,\n"));
   str8_list_push(arena, &builder, str8_lit("ulong row_count) {\n"));
   
   str8_list_push(arena, &builder, str8_lit("  ulong i = get_global_id(0);\n"));
-  //str8_list_push(arena, &builder, str8_lit("ulong offset = name_offsets[i];\n printf(\"Offset: %i, First Char: %c\\n\", offset, name_data[offset]);\n"));
-  //str8_list_push(arena, &builder, str8_lit("    printf(\"Thread %lu: Offset = %lu, First Char = %c\\n\", i, offset, name_data[offset]);\n"));
   str8_list_push(arena, &builder, str8_lit("  if (i >= row_count) return;\n"));
-  
   
   if (where_clause)
   {
     str8_list_push(arena, &builder, str8_lit("  if ("));
     gpu_opencl_generate_where(arena, &builder, where_clause->first);
     str8_list_push(arena, &builder, str8_lit(") {\n"));
-    str8_list_push(arena, &builder, str8_lit("    output_indices[i] = 1;\n"));
-    str8_list_push(arena, &builder, str8_lit("  } else {\n"));
-    str8_list_push(arena, &builder, str8_lit("    output_indices[i] = 0;\n"));
+    //str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_fetch_add(output_count, 1);\n"));
+    str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_add(output_count, 1);\n"));
+    str8_list_push(arena, &builder, str8_lit("    output_indices[index] = i;\n"));
+    //str8_list_push(arena, &builder, str8_lit("    printf(\"output index %i| column index %i\", index, i);\n"));
+    
     str8_list_push(arena, &builder, str8_lit("  }\n"));
   }
   else
@@ -411,7 +433,6 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   }
   
   str8_list_push(arena, &builder, str8_lit("}\n"));
-  
   
   return str8_list_join(arena, &builder, NULL);
 }

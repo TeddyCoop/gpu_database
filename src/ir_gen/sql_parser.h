@@ -46,6 +46,8 @@ global String8 g_sql_keywords[] =
   str8_lit_comp("insert"),
   str8_lit_comp("import"),
   str8_lit_comp("create"),
+  str8_lit_comp("contains"),
+  str8_lit_comp("equals"),
   str8_lit_comp("drop"),
   str8_lit_comp("table"),
   str8_lit_comp("database"),
@@ -55,13 +57,16 @@ global String8 g_sql_keywords[] =
   str8_lit_comp("add"),
   str8_lit_comp("column"),
   str8_lit_comp("u32"),
-  str8_lit_comp("string8"),
+  str8_lit_comp("u64"),
+  str8_lit_comp("f32"),
   str8_lit_comp("f64"),
+  str8_lit_comp("string8"),
 };
 
 global String8 g_sql_operators[] =
 {
   str8_lit_comp("="),
+  str8_lit_comp("=="),
   str8_lit_comp("!="),
   str8_lit_comp(">"),
   str8_lit_comp("<"),

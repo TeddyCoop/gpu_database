@@ -3,7 +3,7 @@
 #ifndef GPU_H
 #define GPU_H
 
-#define GPU_MAX_BUFFER_SIZE MB(1)
+#define GPU_MAX_BUFFER_SIZE MB(64)
 
 typedef enum GPU_BufferFlags
 {
@@ -14,7 +14,8 @@ typedef enum GPU_BufferFlags
   GPU_BufferFlag_DeviceLocal = (1 << 4),
   GPU_BufferFlag_HostCached = (1 << 5),
   GPU_BufferFlag_ZeroCopy = (1 << 6),
-  GPU_BufferFlag_Dynamic = (1 << 7),
+  GPU_BufferFlag_CopyHostPointer = (1 << 7),
+  GPU_BufferFlag_Dynamic = (1 << 8),
   GPU_BufferFlag_COUNT,
 } GPU_BufferFlags;
 

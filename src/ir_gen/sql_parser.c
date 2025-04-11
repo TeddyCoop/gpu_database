@@ -40,7 +40,7 @@ sql_is_string_symbol(String8 string)
 internal SQL_TokenizeResult
 sql_tokenize_from_text(Arena* arena, String8 text)
 {
-  SQL_Token* tokens = push_array(arena, SQL_Token, 256);
+  SQL_Token* tokens = push_array(arena, SQL_Token, 2056);
   U64 token_count = 0;
   
   U64 pos = 0;
@@ -55,10 +55,9 @@ sql_tokenize_from_text(Arena* arena, String8 text)
     
     U64 start = pos;
     
-    // String literals handling
     if (text.str[pos] == '\'')
     {
-      pos++; // Move past opening quote
+      pos++;
       start = pos;
       
       while (pos < text.size && text.str[pos] != '\'')
@@ -77,12 +76,11 @@ sql_tokenize_from_text(Arena* arena, String8 text)
       {
         .type = SQL_TokenType_String,
         .value = token_value,
-        .range = r1u64(start - 1, pos + 1) // Include quotes
+        .range = r1u64(start - 1, pos + 1)
       };
       
-      pos++; // Move past closing quote
+      pos++;
     }
-    // Numbers (including floating point)
     else if (char_is_digit(text.str[pos], 10)) 
     {
       B32 has_dot = 0;
@@ -92,7 +90,6 @@ sql_tokenize_from_text(Arena* arena, String8 text)
         if (text.str[pos] == '.')
         {
           has_dot = 1;
-          // Ensure it's not just a single dot (e.g., "100.")
           if (pos + 1 >= text.size || !char_is_digit(text.str[pos + 1], 10))
           {
             break;
@@ -486,7 +483,8 @@ sql_parse_comparison_expression(Arena* arena, SQL_Token **tokens, U64 *token_ind
   }
   
   // Expect comparison operator
-  if (*token_index >= token_count || (*tokens)[*token_index].type != SQL_TokenType_Operator)
+  if (*token_index >= token_count || !((*tokens)[*token_index].type == SQL_TokenType_Operator ||
+                                       (*tokens)[*token_index].type == SQL_TokenType_Keyword))
   {
     log_error("expected comparison operator in expression");
     return NULL;

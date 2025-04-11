@@ -476,7 +476,16 @@ gdb_table_load(String8 table_dir, String8 meta_path)
     {
       column->is_disk_backed = 1;
       column->disk_path = push_str8_copy(column->arena, column_path);
-      column->variable_capacity = props.size - (column->capacity * sizeof(U64));
+      if (column->type == GDB_ColumnType_String8)
+      {
+        OS_Handle map = os_file_map_open(OS_AccessFlag_Read, file);
+        void* mapped_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, r1u64(0, sizeof(U64)));
+        column->variable_capacity = *(U64*)mapped_ptr;
+      }
+      else
+      {
+        column->variable_capacity = props.size - (column->capacity * sizeof(U64));
+      }
     }
     else
     {
@@ -977,7 +986,7 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
     U64 col_index = 0;
     for (String8Node* col = columns.first; col; col = col->next, col_index++)
     {
-      String8 str = push_str8_copy(table->arena, col->string);
+      String8 str = push_str8_copy(table->arena, str8_skip_chop_whitespace(col->string));
       if (column_types[col_index] == GDB_ColumnType_Invalid)
       {
         column_types[col_index] = GDB_ColumnType_String8;
@@ -1003,12 +1012,47 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
     
     for (U64 i = 0; i < chunk_count; i++)
     {
+#if 0
       U64 raw_offset = header_size + (chunk_offset + i) * GDB_CSV_CHUNK_SIZE;
       U64 size = Min(GDB_CSV_CHUNK_SIZE, props.size - raw_offset);
       
       // tec: alignment
       U64 aligned_offset = AlignDownPow2(raw_offset, KB(64));
       U64 offset_within_view = raw_offset - aligned_offset;
+#else
+      U64 raw_offset = header_size + (chunk_offset + i) * GDB_CSV_CHUNK_SIZE;
+      U64 size = Min(GDB_CSV_CHUNK_SIZE, props.size - raw_offset);
+      
+      U64 aligned_offset = AlignDownPow2(raw_offset, KB(64));
+      U64 offset_within_view = raw_offset - aligned_offset;
+      
+      // Open a 2KB scan view aligned to 64KB
+      U64 scan_view_size = KB(2);
+      Rng1U64 scan_range = r1u64(aligned_offset, aligned_offset + offset_within_view + scan_view_size);
+      
+      void* scan_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, scan_range);
+      U8* scan_bytes = (U8*)scan_ptr + offset_within_view;
+      U64 bytes_remaining = props.size - raw_offset;
+      
+      U64 skip = 0;
+      while (skip < scan_view_size && skip < bytes_remaining)
+      {
+        if (scan_bytes[skip] == '\n')
+        {
+          skip += 1;
+          break;
+        }
+        skip += 1;
+      }
+      os_file_map_view_close(map, scan_ptr, scan_range);
+      
+      U64 adjusted_raw_offset = raw_offset + skip;
+      aligned_offset = AlignDownPow2(adjusted_raw_offset, KB(64));
+      offset_within_view = adjusted_raw_offset - aligned_offset;
+      
+      U64 aligned_size = Min(GDB_CSV_CHUNK_SIZE, props.size - adjusted_raw_offset);
+      
+#endif
       
       U64 max_rows = max_U16;
       GDB_CSV_ThreadColumnData* columns = push_array(scratch_arena, GDB_CSV_ThreadColumnData, column_count);
@@ -1023,7 +1067,7 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
       contexts[i] = (GDB_CSV_ThreadContext)
       {
         .map = map,
-        .range = r1u64(aligned_offset, aligned_offset + size + offset_within_view),
+        .range = r1u64(aligned_offset, aligned_offset + aligned_size + offset_within_view),
         .table = table,
         .offset_within_view = offset_within_view,
         .columns = columns,
@@ -1156,7 +1200,7 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       U64 new_reserved = var_reserved * 2;
       if (new_reserved < var_cap + str->size)
       {
-        new_reserved = var_cap + str->size + GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE;
+        new_reserved = AlignUp(var_cap + str->size + GDB_COLUMN_VARIABLE_CAPACITY_ALLOC_SIZE, 8);
       }
       
       U64 old_offset_pos = sizeof(U64) + var_reserved;
@@ -1186,10 +1230,13 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       */
       
       offset_array_offset = sizeof(U64) + var_reserved;
+      //offset_array_offset = sizeof(U64);
+      //offset_array_offset = sizeof(U64);
       
       U64 new_size = offset_array_offset + total_offsets_size;
       os_file_resize(file, new_size);
     }
+    //U64 string_offset = var_reserved;
     U64 string_offset = var_cap;
     os_file_write(file, r1u64(sizeof(U64) + string_offset, sizeof(U64) + string_offset + str->size), str->str);
     
@@ -1386,14 +1433,18 @@ gdb_column_get_data(GDB_Column* column, U64 index)
 {
   if (index >= column->row_count)
   {
-    log_error("index out of bounds");
+    log_error("index %llu out of bounds %llu", index, column->row_count);
     return NULL;
   }
   
   if (column->is_disk_backed)
   {
     U64 offset = index * column->size;
-    OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+    OS_Handle file = column->file;
+    if (os_handle_match(os_handle_zero(), file))
+    {
+      file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+    }
     void* data = arena_push(column->arena, column->size, 8);
     os_file_read(file, r1u64(offset, offset + column->size), data);
     os_file_close(file);
@@ -1419,7 +1470,11 @@ gdb_column_get_string(Arena* arena, GDB_Column* column, U64 index)
   {
     if (column->is_disk_backed)
     {
-      OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+      OS_Handle file = column->file;
+      if (os_handle_match(os_handle_zero(), file))
+      {
+        file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+      }
       
       U64 variable_reserved = 0;
       os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved); 
@@ -1435,14 +1490,18 @@ gdb_column_get_string(Arena* arena, GDB_Column* column, U64 index)
       }
       os_file_read(file, r1u64(offset_position, offset_position + sizeof(U64)), &end_offset);
       
+      log_info("base %llu, start %llu, end %llu", offset_base, start_offset, end_offset);
       U64 size = end_offset - start_offset;
       result.str = arena_push(arena, size, 8);
       
-      U64 data_start = sizeof(U64) + start_offset; // Adjusted to skip header
+      U64 data_start = sizeof(U64) + start_offset;
       os_file_read(file, r1u64(data_start, data_start + size), result.str);
       result.size = size;
       
-      os_file_close(file);
+      if (os_handle_match(os_handle_zero(), column->file))
+      {
+        os_file_close(file);
+      }
     }
     else
     {
@@ -1629,17 +1688,19 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
   
   if (column->is_disk_backed)
   {
-    OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+    OS_Handle file = column->file;
     if (os_handle_match(os_handle_zero(), file))
     {
-      log_error("Failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
-      return result;
+      file = os_file_open(OS_AccessFlag_Read, column->disk_path);
     }
+    
+    U64 variable_reserved = 0;
+    os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved); 
     
     U64 start_offset = 0;
     U64 end_offset = 0;
-    U64 offset_position_start = column->variable_capacity + (row_range.min * sizeof(U64));
-    U64 offset_position_end = column->variable_capacity + (row_range.max * sizeof(U64));
+    U64 offset_position_start = sizeof(U64) + variable_reserved + (row_range.min * sizeof(U64));
+    U64 offset_position_end = sizeof(U64) + variable_reserved + (row_range.max * sizeof(U64));
     
     if (row_range.min == 0)
     {
@@ -1689,7 +1750,10 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
       result.offsets[i] = current_offset - start_offset;
     }
     
-    os_file_close(file);
+    if (os_handle_match(os_handle_zero(), column->file))
+    {
+      os_file_close(file);
+    }
     result.size = size;
     result.row_count = row_count;
   }
@@ -1703,8 +1767,9 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     result.size = size;
     result.row_count = row_count;
     
-    result.offsets = push_array(arena, U64, row_count);
-    for (U64 i = 0; i < row_count; i++)
+    // tec: NOTE add 1 to the row count to include the last offset
+    result.offsets = push_array(arena, U64, row_count+1);
+    for (U64 i = 0; i < row_count+1; i++)
     {
       result.offsets[i] = (row_range.min + i > 0) ? column->offsets[row_range.min + i - 1] - start_offset : 0;
     }
@@ -1860,4 +1925,90 @@ gdb_promote_type(GDB_ColumnType existing, GDB_ColumnType new_type)
   }
   
   return GDB_ColumnType_String8;
+}
+
+
+//~: tec debugging
+internal void
+debug_gdb_column_get_data_range(GDB_Column *column, Rng1U64 range)
+{
+  Arena *arena = arena_alloc();
+  U64 size = 0;
+  void *data = gdb_column_get_data_range(arena, column, range, &size);
+  
+  if (data == NULL)
+  {
+    log_debug("data retrieval failed for range [%llu - %llu]", range.min, range.max);
+    return;
+  }
+  
+  log_debug("data range [%llu - %llu], size = %llu:", range.min, range.max, size);
+  
+  if (column->type == GDB_ColumnType_U32)
+  {
+    U32 *values = (U32 *)data;
+    for (U64 i = 0; i < size / sizeof(U32); i++)
+    {
+      log_debug("%llu: %u", range.min + i, values[i]);
+    }
+  }
+  else if (column->type == GDB_ColumnType_U64)
+  {
+    U64 *values = (U64 *)data;
+    for (U64 i = 0; i < size / sizeof(U64); i++)
+    {
+      log_debug("%llu: %llu", range.min + i, values[i]);
+    }
+  }
+  else if (column->type == GDB_ColumnType_F32)
+  {
+    F32 *values = (F32 *)data;
+    for (U64 i = 0; i < size / sizeof(F32); i++)
+    {
+      log_debug("%llu: %f", range.min + i, values[i]);
+    }
+  }
+  else if (column->type == GDB_ColumnType_F64)
+  {
+    F64 *values = (F64 *)data;
+    for (U64 i = 0; i < size / sizeof(F64); i++)
+    {
+      log_debug("%llu: %f", range.min + i, values[i]);
+    }
+  }
+  else if (column->type == GDB_ColumnType_String8)
+  {
+    log_debug("use debug_gdb_column_get_string_chunk instead for String8 columns");
+  }
+  else
+  {
+    log_debug("unsupported column type: %d", column->type);
+  }
+  
+  arena_release(arena);
+}
+
+internal void
+debug_gdb_column_get_string_chunk(GDB_Column *column, Rng1U64 range)
+{
+  Arena *arena = arena_alloc();
+  GDB_StringDataChunk chunk = gdb_column_get_string_chunk(arena, column, range);
+  
+  if (chunk.data == NULL || chunk.offsets == NULL)
+  {
+    log_debug("failed to get string chunk for range [%llu - %llu]", range.min, range.max);
+    return;
+  }
+  
+  log_debug("string chunk for rows [%llu - %llu] (%llu rows):", range.min, range.max, chunk.row_count);
+  
+  for (U64 i = 0; i < chunk.row_count; i++)
+  {
+    U64 offset = chunk.offsets[i];
+    U64 next_offset = (i + 1 < chunk.row_count) ? chunk.offsets[i + 1] : chunk.size;
+    U64 length = next_offset - offset;
+    log_debug("%llu: \"%.*s\"", range.min + i, (int)length, (char *)((U8*)chunk.data + offset));
+  }
+  
+  arena_release(arena);
 }
