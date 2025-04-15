@@ -420,6 +420,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   //str8_list_push(arena, &builder, str8_lit("  if (i <= 38) printf(\"col_1[38]=%lu\\n\", col_1_int[i]);\n"));
   //str8_list_push(arena, &builder, str8_lit("  if (i <= 40) {\n"));
   //str8_list_push(arena, &builder, str8_lit("  printf(\"%lu\\n\", col_1_int[i]);\n"));
+  //str8_list_push(arena, &builder, str8_lit("  printf(\"%lu\\n\", i);\n"));
   //str8_list_push(arena, &builder, str8_lit("  }\n"));
   
   if (where_clause)

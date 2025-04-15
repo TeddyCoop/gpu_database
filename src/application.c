@@ -411,7 +411,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
                                                      &size
                                                      );
           
-          debug_gdb_column_get_data_range(column, r1u64(0, 40));
+          //debug_gdb_column_get_data_range(column, r1u64(0, 40));
           
           if (data_ptr)
           {
@@ -434,7 +434,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       gpu_kernel_set_arg_u64(kernel,    gpu_buffer_count + 2, chunk_rows);
       
       //gpu_kernel_execute(kernel, chunk_rows, 1);
-      gpu_kernel_execute(kernel, 32, 32);
+      gpu_kernel_execute(kernel, chunk_rows, 32);
       
       
       U64 result_count = 0;
