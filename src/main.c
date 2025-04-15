@@ -132,10 +132,10 @@ entry_point(void)
                                         "SELECT name, email \n"
                                         "FROM customers \n"
                                         //"WHERE age >= 25 AND (balance > 500 OR name CONTAINS 'ob') \n"
-                                        //"WHERE name == 'Theodore';\n"
+                                        "WHERE name == 'Theodore';\n"
                                         //"WHERE name contains 'Da';\n"
                                         //"WHERE name contains 'ice';\n"
-                                        "WHERE id == 2;\n"
+                                        //"WHERE id == 2;\n"
                                         //"WHERE id > 0;\n"
                                         );
     
@@ -157,17 +157,6 @@ entry_point(void)
                                                   "(4, 'Theodore', 65, 'dannybrown@example.com', 190000.00);\n"
                                                   );
     
-    String8 human_ai_create_query = str8_lit(
-                                             "CREATE DATABASE human_to_ai_text;"
-                                             "IMPORT INTO text FROM 'human_to_ai_text_dataset.csv';"
-                                             );
-    
-    String8 human_ai_select_query = str8_lit(
-                                             "USE human_to_ai_text;"
-                                             "SELECT human_text FROM human_to_ai_text_dataset"
-                                             "WHERE id = '7ea13fe-6eb3-4cb4-818f-767b5eaab564';"
-                                             );
-    
     String8 test1_create_query = str8_lit(
                                           "CREATE DATABASE test;"
                                           "IMPORT INTO test1 FROM 'test1.csv';"
@@ -175,19 +164,15 @@ entry_point(void)
     
     String8 test1_select_query = str8_lit(
                                           "USE test;"
-                                          "SELECT col_1_int FROM test1 "
-                                          "WHERE col_0_str = '940CQwFydUnl';"
+                                          //"SELECT col_1_int FROM test1_small\n"
+                                          //"SELECT col_1_int FROM test1\n"
+                                          "SELECT col_0_str FROM test1 "
+                                          //"WHERE col_1_int == 32548;"
+                                          "WHERE col_1_int == 235483;"
+                                          //"WHERE col_1_int == 964191;"
+                                          //"WHERE col_1_int == 506490;"
+                                          //"WHERE col_1_int == 578550;"
                                           );
-    
-    String8 pets_query = str8_lit(
-                                  "CREATE DATABASE adoptable_pets;"
-                                  "IMPORT INTO Adoptable_Pets FROM 'Adoptable_Pets.csv';"
-                                  );
-    
-    String8 real_estate_query = str8_lit(
-                                         "CREATE DATABASE real_estate;"
-                                         "IMPORT INTO real_estate FROM 'real_estate_big.csv';"
-                                         );
     
     //app_execute_query(complex_sql_query);
     //app_execute_query(create_test_database_query);
@@ -195,7 +180,7 @@ entry_point(void)
     //app_execute_query(human_ai_select_query);
     //app_execute_query(human_ai_create_query);
     //app_execute_query(test1_create_query);
-    //app_execute_query(test1_select_query);
+    app_execute_query(test1_select_query);
     //app_execute_query(pets_query);
     //app_execute_query(real_estate_query);
   }
@@ -212,6 +197,8 @@ todo:
 [x]- a query returned from the gpu should be a sparse array, only holding the indices of valid elements
 [x]-- if a column count is greater than a threshold, split the query up as to not run out of GPU memory
 --- also means keeping track of the max gpu memory and the memory used by the database 
+
+
 
 - write a function that parses and adds data to a column
 

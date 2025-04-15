@@ -3,8 +3,8 @@ gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
 {
   cl_mem_flags result = 0;
   
-  if (flags & GPU_BufferFlag_ReadOnly)  result |= CL_MEM_READ_ONLY;
-  if (flags & GPU_BufferFlag_WriteOnly) result |= CL_MEM_WRITE_ONLY;
+  if (flags & GPU_BufferFlag_Read)  result |= CL_MEM_READ_ONLY;
+  if (flags & GPU_BufferFlag_Write) result |= CL_MEM_WRITE_ONLY;
   if (flags & GPU_BufferFlag_ReadWrite) result |= CL_MEM_READ_WRITE;
   if (flags & GPU_BufferFlag_HostVisible) result |= CL_MEM_ALLOC_HOST_PTR;
   if (flags & GPU_BufferFlag_HostCached) result |= CL_MEM_USE_HOST_PTR;
@@ -121,6 +121,7 @@ gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size)
   ProfCodeBegin(clEnqueueWriteBuffer);
   {
     clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+    clFinish(g_opencl_state->command_queue);
   }
   ProfCodeEnd(clEnqueueWriteBuffer);
 }
@@ -131,6 +132,7 @@ gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
   ProfCodeBegin(clEnqueueReadBuffer);
   {
     clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+    clFinish(g_opencl_state->command_queue);
   }
   ProfCodeEnd(clEnqueueReadBuffer);
 }
@@ -217,7 +219,7 @@ str8_lit_comp(
               "    ulong start = offsets[row_index];\n"
               "    ulong end = offsets[row_index+1];\n"
               "    ulong str_size = end - start;\n"
-              "    printf(\"compare_size %lu | size %lu\", (ulong)compare_size, str_size);\n"
+              //"    printf(\"compare_size %lu | size %lu\", (ulong)compare_size, str_size);\n"
               "    if (str_size != (ulong)compare_size) return 0;\n"
               "\n"
               "    for (ulong i = 0; i < str_size; i++) {\n"
@@ -226,6 +228,7 @@ str8_lit_comp(
               "        }\n"
               "    }\n"
               "\n"
+              //"printf(\"found matching str row_index %lu\\n\", row_index);\n"
               "    return 1;\n"
               "}\n"
               );
@@ -370,7 +373,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     }
   }
   
-  str8_list_push(arena, &builder, str8_lit("#pragma OPENCL EXTENSION cl_amd_printf : enable\n"));
+  //str8_list_push(arena, &builder, str8_lit("#pragma OPENCL EXTENSION cl_amd_printf : enable\n"));
   if (contains_string_column)
   {
     str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
@@ -414,6 +417,10 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   
   str8_list_push(arena, &builder, str8_lit("  ulong i = get_global_id(0);\n"));
   str8_list_push(arena, &builder, str8_lit("  if (i >= row_count) return;\n"));
+  //str8_list_push(arena, &builder, str8_lit("  if (i <= 38) printf(\"col_1[38]=%lu\\n\", col_1_int[i]);\n"));
+  //str8_list_push(arena, &builder, str8_lit("  if (i <= 40) {\n"));
+  //str8_list_push(arena, &builder, str8_lit("  printf(\"%lu\\n\", col_1_int[i]);\n"));
+  //str8_list_push(arena, &builder, str8_lit("  }\n"));
   
   if (where_clause)
   {
@@ -423,7 +430,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     //str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_fetch_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    output_indices[index] = i;\n"));
-    //str8_list_push(arena, &builder, str8_lit("    printf(\"output index %i| column index %i\", index, i);\n"));
+    str8_list_push(arena, &builder, str8_lit("    printf(\"output index %i| column index %i\", index, i);\n"));
     
     str8_list_push(arena, &builder, str8_lit("  }\n"));
   }

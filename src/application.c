@@ -11,6 +11,7 @@ app_execute_query(String8 sql_query)
   //sql_print_ast(sql_root);
   //ir_print_query(ir_query);
   
+  
   GDB_Database* database = NULL;
   
   for (IR_Node* ir_execution_node = ir_query->execution_nodes; ir_execution_node != NULL;
@@ -22,12 +23,11 @@ app_execute_query(String8 sql_query)
       
       case IR_NodeType_Use:
       {
-        // tec: create nodes should only have one child
-        IR_Node* use_object = ir_execution_node->first;
+        IR_Node* use_ir_node = ir_node_find_child(ir_execution_node, IR_NodeType_Database);
         
-        if (use_object->type == IR_NodeType_Database)
+        if (use_ir_node->type == IR_NodeType_Database)
         {
-          String8 database_path = push_str8f(arena, "data/%.*s", (U32)use_object->value.size, use_object->value.str);
+          String8 database_path = push_str8f(arena, "data/%.*s", (U32)use_ir_node->value.size, use_ir_node->value.str);
           database = gdb_database_load(database_path);
           gdb_add_database(database);
         }
@@ -35,19 +35,18 @@ app_execute_query(String8 sql_query)
       
       case IR_NodeType_Create:
       {
-        // tec: create nodes should only have one child
-        IR_Node* create_object = ir_execution_node->first;
+        IR_Node* create_ir_node = ir_execution_node->first;
         
-        if (create_object->type == IR_NodeType_Database)
+        if (create_ir_node->type == IR_NodeType_Database)
         {
-          database = gdb_database_alloc(create_object->value);
+          database = gdb_database_alloc(create_ir_node->value);
           gdb_add_database(database);
         }
-        else if (create_object->type == IR_NodeType_Table)
+        else if (create_ir_node->type == IR_NodeType_Table)
         {
-          GDB_Table* table = gdb_table_alloc(create_object->value);
+          GDB_Table* table = gdb_table_alloc(create_ir_node->value);
           
-          for (IR_Node* column_node = create_object->first; column_node != 0; column_node = column_node->next)
+          for (IR_Node* column_node = create_ir_node->first; column_node != 0; column_node = column_node->next)
           {
             GDB_ColumnType column_type = gdb_column_type_from_string(column_node->first->value);
             GDB_ColumnSchema column_schema = gdb_column_schema_create(column_node->value, column_type);
@@ -61,7 +60,8 @@ app_execute_query(String8 sql_query)
       case IR_NodeType_Insert:
       {
         // tec: table
-        IR_Node* table_object = ir_execution_node->first;
+        IR_Node* table_object = ir_node_find_child(ir_execution_node, IR_NodeType_Table);
+        //IR_Node* table_object = ir_execution_node->first;
         GDB_Table* table = gdb_database_find_table(database, table_object->value);
         
         // tec: skip column defs
@@ -152,8 +152,11 @@ app_execute_query(String8 sql_query)
         IR_Node* where_clause = ir_node_find_child(ir_execution_node, IR_NodeType_Where);
         String8List active_columns = { 0 };
         ir_create_active_column_list(arena, where_clause, &active_columns);
+        
+#if 0
         String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, ir_execution_node, &active_columns);
         //log_info("%s", kernel_code.str);
+        
         
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
         U64 row_count = table->row_count;
@@ -223,6 +226,7 @@ app_execute_query(String8 sql_query)
             gdb_table_remove_row(table, i);
           }
         }
+#endif
       } break;
       
       case IR_NodeType_Import:
@@ -307,6 +311,7 @@ app_execute_query(String8 sql_query)
       
     }
   }
+  //gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
   
   String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   gdb_database_save(database, database_filepath);
@@ -325,7 +330,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   String8List active_columns = { 0 };
   ir_create_active_column_list(arena, where_clause, &active_columns);
   String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, root_node, &active_columns);
-  //log_debug("%.*s", str8_varg(kernel_code));
+  log_debug("%.*s", str8_varg(kernel_code));
+  //return result;
   
   GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
   if (!kernel)
@@ -345,6 +351,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   
   if (largest_column_size > GPU_MAX_BUFFER_SIZE)
   {
+    log_info("chunked");
     /*
     U64 chunk_count = (largest_column_size + GPU_MAX_BUFFER_SIZE - 1) / GPU_MAX_BUFFER_SIZE;
     U64 chunk_size = GPU_MAX_BUFFER_SIZE;
@@ -355,18 +362,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     for (String8Node* node = active_columns.first; node != NULL; node = node->next)
     {
       GDB_Column* column = gdb_table_find_column(table, node->string);
-      switch (column->type)
-      {
-        case GDB_ColumnType_U32:  row_size += sizeof(U32); break;
-        case GDB_ColumnType_U64:  row_size += sizeof(U64); break;
-        case GDB_ColumnType_F32:  row_size += sizeof(F32); break;
-        case GDB_ColumnType_F64:  row_size += sizeof(F64); break;
-        case GDB_ColumnType_String8:
-        {
-          row_size += sizeof(U64); // offset
-          row_size += 8; // estimated string length per row
-        } break;
-      }
+      row_size += column->size;
     }
     if (row_size == 0) row_size = 1;
     
@@ -398,10 +394,10 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
           
           if (chunk.data && chunk.offsets)
           {
-            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, chunk.data);
+            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_HostCached, chunk.data);
             column_index++;
             
-            column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, chunk.offsets);
+            column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_Write | GPU_BufferFlag_HostCached, chunk.offsets);
             column_index++;
           }
         }
@@ -415,12 +411,17 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
                                                      &size
                                                      );
           
-          column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, data_ptr);
-          column_index++;
+          debug_gdb_column_get_data_range(column, r1u64(0, 40));
+          
+          if (data_ptr)
+          {
+            column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, data_ptr);
+            column_index++;
+          }
         }
       }
       
-      GPU_Buffer* output_buffer = gpu_buffer_alloc(chunk_rows * sizeof(U64), GPU_BufferFlag_ReadOnly, 0);
+      GPU_Buffer* output_buffer = gpu_buffer_alloc(chunk_rows * sizeof(U64), GPU_BufferFlag_Read, 0);
       U64 zero = 0;
       GPU_Buffer* result_counter_buffer = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, &zero);
       
@@ -432,7 +433,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count + 1, result_counter_buffer);
       gpu_kernel_set_arg_u64(kernel,    gpu_buffer_count + 2, chunk_rows);
       
-      gpu_kernel_execute(kernel, chunk_rows, 1);
+      //gpu_kernel_execute(kernel, chunk_rows, 1);
+      gpu_kernel_execute(kernel, 32, 32);
       
       
       U64 result_count = 0;
@@ -440,8 +442,28 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       U64* chunk_results = push_array(arena, U64, result_count);
       gpu_buffer_read(output_buffer, chunk_results, result_count * sizeof(U64));
       
-      MemoryCopy(result.indices + (result.count * sizeof(U64)), chunk_results, result_count * sizeof(U64));
-      result.count += result_count;
+      if (result_count != 0)
+      {
+        if (result.indices == 0)
+        {
+          result.cap = result_count;
+          result.indices = push_array(arena, U64, result.cap);
+        }
+        else if (result.count + result_count > result.cap)
+        {
+          result.cap = Max(result.cap * 2, result.count + result_count);
+          U64* new_ptr = push_array_no_zero(arena, U64, result.cap);
+          MemoryCopy(new_ptr, result.indices, result.count * sizeof(U64));
+          result.indices = new_ptr;
+        }
+        
+        MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
+        result.count += result_count;
+        
+        //MemoryCopy(result.indices + (result.count * sizeof(U64)), chunk_results, result_count * sizeof(U64));
+        //MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
+        //result.count += result_count;
+      }
       
       gpu_buffer_release(output_buffer);
       gpu_buffer_release(result_counter_buffer);
@@ -450,6 +472,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   }
   else
   {
+    log_info("non chunked");
     GPU_Buffer** column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
     U32 column_index = 0;
     
@@ -459,18 +482,17 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       
       if (column->type == GDB_ColumnType_String8)
       {
-        GDB_StringDataChunk chunk = gdb_column_get_string_chunk(
-                                                                arena,
+        GDB_StringDataChunk chunk = gdb_column_get_string_chunk(arena,
                                                                 column,
-                                                                r1u64(0, table->row_count)
-                                                                );
+                                                                r1u64(0, table->row_count));
+        debug_gdb_column_get_string_chunk(column, r1u64(0, table->row_count));
         if (chunk.data && chunk.offsets)
         {
-          column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, chunk.data);
+          column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.data);
           column_index++;
           
           // tec: NOTE add 1 to the row count. so the last offset used for string size calculation
-          column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, chunk.offsets);
+          column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.offsets);
           column_index++;
         }
         else
@@ -482,12 +504,12 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       {
         U64 size = 0;
         void* data_ptr = gdb_column_get_data_range(arena, column, r1u64(0, table->row_count), &size);
-        column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, data_ptr);
+        column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, data_ptr);
         column_index++;
       }
     }
     
-    GPU_Buffer* output_buffer = gpu_buffer_alloc(table->row_count * sizeof(U64), GPU_BufferFlag_ReadOnly, 0);
+    GPU_Buffer* output_buffer = gpu_buffer_alloc(table->row_count * sizeof(U64), GPU_BufferFlag_Read, 0);
     U64 zero = 0;
     GPU_Buffer* result_counter_buffer = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, &zero);
     

@@ -6,6 +6,11 @@
 #define CL_TARGET_OPENCL_VERSION 300
 #include "third_party/CL/opencl.h"
 
+StaticAssert(sizeof(U32) == sizeof(cl_uint), InvalidSize);
+StaticAssert(sizeof(U64) == sizeof(cl_ulong), InvalidSize);
+StaticAssert(sizeof(F32) == sizeof(cl_float), InvalidSize);
+StaticAssert(sizeof(F64) == sizeof(cl_double), InvalidSize);
+
 struct GPU_Buffer
 {
   cl_mem buffer;

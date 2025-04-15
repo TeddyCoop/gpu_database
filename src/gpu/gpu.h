@@ -3,12 +3,14 @@
 #ifndef GPU_H
 #define GPU_H
 
-#define GPU_MAX_BUFFER_SIZE MB(64)
+#define GPU_MAX_BUFFER_SIZE MB(16)
+//#define GPU_MAX_BUFFER_SIZE KB(16)
+//#define GPU_MAX_BUFFER_SIZE KB(64)
 
 typedef enum GPU_BufferFlags
 {
-  GPU_BufferFlag_ReadOnly  = (1 << 0),
-  GPU_BufferFlag_WriteOnly = (1 << 1),
+  GPU_BufferFlag_Read  = (1 << 0),
+  GPU_BufferFlag_Write = (1 << 1),
   GPU_BufferFlag_ReadWrite = (1 << 2),
   GPU_BufferFlag_HostVisible = (1 << 3),
   GPU_BufferFlag_DeviceLocal = (1 << 4),

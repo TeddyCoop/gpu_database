@@ -8,6 +8,7 @@ struct APP_KernelResult
 {
   U64* indices;
   U64 count;
+  U64 cap;
 };
 
 internal void app_execute_query(String8 sql_query);
