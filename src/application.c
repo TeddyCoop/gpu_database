@@ -2,6 +2,8 @@
 internal void
 app_execute_query(String8 sql_query)
 {
+  ProfBeginFunction();
+  
   Arena* arena = arena_alloc();
   
   SQL_TokenizeResult tokenize_result = sql_tokenize_from_text(arena, sql_query);
@@ -27,7 +29,7 @@ app_execute_query(String8 sql_query)
         
         if (use_ir_node->type == IR_NodeType_Database)
         {
-          String8 database_path = push_str8f(arena, "data/%.*s", (U32)use_ir_node->value.size, use_ir_node->value.str);
+          String8 database_path = push_str8f(arena, "data/%.*s", str8_varg(use_ir_node->value));
           database = gdb_database_load(database_path);
           gdb_add_database(database);
         }
@@ -61,7 +63,6 @@ app_execute_query(String8 sql_query)
       {
         // tec: table
         IR_Node* table_object = ir_node_find_child(ir_execution_node, IR_NodeType_Table);
-        //IR_Node* table_object = ir_execution_node->first;
         GDB_Table* table = gdb_database_find_table(database, table_object->value);
         
         // tec: skip column defs
@@ -148,73 +149,11 @@ app_execute_query(String8 sql_query)
       } break;
       case IR_NodeType_Delete:
       {
+        /*
         String8 kernel_name = str8_lit("delete_query");
         IR_Node* where_clause = ir_node_find_child(ir_execution_node, IR_NodeType_Where);
         String8List active_columns = { 0 };
         ir_create_active_column_list(arena, where_clause, &active_columns);
-        
-#if 0
-        String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, ir_execution_node, &active_columns);
-        //log_info("%s", kernel_code.str);
-        
-        
-        GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
-        U64 row_count = table->row_count;
-        U64 gpu_buffer_count = 0;
-        GPU_Buffer** column_gpu_buffers = 0;
-        GPU_Buffer* output_buffer = 0;
-        GPU_Buffer* row_count_buffer = 0;
-        {
-          for (String8Node* node = active_columns.first; node != NULL; node = node->next)
-          {
-            GDB_Column* column = gdb_table_find_column(table, node->string);
-            gpu_buffer_count += column->type == GDB_ColumnType_String8 ? 2 : 1;
-          }
-          
-          column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
-          U32 column_index = 0;
-          for (String8Node* node = active_columns.first; node != NULL; node = node->next)
-          {
-            GDB_Column* column = gdb_table_find_column(table, node->string);
-            U64 size = row_count * column->size;
-            void* data_ptr = column->data;
-            column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, data_ptr);
-            column_index++;
-            
-            if (column->type == GDB_ColumnType_String8)
-            {
-              U64 offset_size = row_count * sizeof(U32);
-              column_gpu_buffers[column_index] = gpu_buffer_alloc(offset_size, GPU_BufferFlag_ReadWrite | GPU_BufferFlag_HostCached, column->offsets);
-              column_index++;
-            }
-          }
-          output_buffer = gpu_buffer_alloc(row_count * sizeof(U64), GPU_BufferFlag_ReadOnly, 0);
-          row_count_buffer = gpu_buffer_alloc(sizeof(U64), GPU_BufferFlag_ReadOnly | GPU_BufferFlag_HostCached, &row_count);
-        }
-        
-        GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
-        
-        if (!kernel)
-        {
-          log_error("failed to alloc kernel");
-          break;
-        }
-        
-        for (U64 i = 0; i < gpu_buffer_count; i++)
-        {
-          gpu_kernel_set_arg_buffer(kernel, i, column_gpu_buffers[i]);
-        }
-        gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count+0, output_buffer);
-        gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count+1, row_count_buffer);
-        
-        gpu_kernel_execute(kernel, 4, 4);
-        
-        
-        U64* filtered_results = push_array(arena, U64, row_count);
-        gpu_buffer_read(output_buffer, filtered_results, row_count * sizeof(U64));
-        
-        U64 filtered_count = 0;
-        gpu_buffer_read(row_count_buffer, &filtered_count, sizeof(U64));
         
         //~ tec: output
         IR_Node* select_output_columns = ir_node_find_child(ir_execution_node, IR_NodeType_ColumnList);
@@ -226,11 +165,13 @@ app_execute_query(String8 sql_query)
             gdb_table_remove_row(table, i);
           }
         }
-#endif
+        */
       } break;
       
       case IR_NodeType_Import:
       {
+        ProfBegin("SQL: Import");
+        
         IR_Node* table_node = ir_node_find_child(ir_execution_node, IR_NodeType_Table);
         IR_Node* import_file_node = ir_node_find_child(ir_execution_node, IR_NodeType_Literal);
         
@@ -241,35 +182,28 @@ app_execute_query(String8 sql_query)
         //else
         {
           Temp scratch = scratch_begin(0, 0);
-          /*
-          String8 filepath = push_str8f(scratch.arena, "data/%.*s/%.*s", 
-                                        (U32)database->name.size, database->name.str,
-                                        (U32)import_file_node->value.size, import_file_node->value.str);
-          */
           String8 filepath = push_str8f(scratch.arena, "data/%.*s", 
-                                        (U32)import_file_node->value.size, import_file_node->value.str);
+                                        str8_varg(import_file_node->value));
           GDB_Table* table = gdb_table_import_csv(database, filepath);
           table->name = push_str8_copy(table->arena, table->name);
           scratch_end(scratch);
           gdb_database_add_table(database, table);
         }
+        
+        ProfEnd();
       } break;
       
       //~ tec: gpu
       case IR_NodeType_Select:
       {
+        ProfBegin("SQL: Select");
+        
         String8 kernel_name = str8_lit("select_query");
         APP_KernelResult result = app_perform_kernel(arena, kernel_name, database, ir_execution_node);
         IR_Node* select_output_columns = ir_node_find_child(ir_execution_node, IR_NodeType_ColumnList);
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
         
         log_info("result count %llu", result.count);
-        for (U64 i = 0; i < result.count; i++)
-        {
-          U64 row_index = result.indices[i];
-          log_info("row index %llu", row_index);
-        }
-        
         Temp scratch = scratch_begin(0, 0);
         for (U64 i = 0; i < result.count; i++)
         {
@@ -307,30 +241,33 @@ app_execute_query(String8 sql_query)
           scratch_end(scratch);
         }
         
+        ProfEnd();
       } break;
       
     }
   }
-  //gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
   
-  String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
-  gdb_database_save(database, database_filepath);
+  //String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
+  //gdb_database_save(database, database_filepath);
   
   //test_print_database(database);
   
   arena_release(arena);
+  ProfEnd();
 }
 
 internal APP_KernelResult
 app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* root_node)
 {
+  ProfBeginFunction();
+  
   APP_KernelResult result = { 0 };
   
   IR_Node* where_clause = ir_node_find_child(root_node, IR_NodeType_Where);
   String8List active_columns = { 0 };
   ir_create_active_column_list(arena, where_clause, &active_columns);
   String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, root_node, &active_columns);
-  log_debug("%.*s", str8_varg(kernel_code));
+  log_debug("kernel output:\n%.*s", str8_varg(kernel_code));
   //return result;
   
   GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
@@ -351,13 +288,6 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   
   if (largest_column_size > GPU_MAX_BUFFER_SIZE)
   {
-    log_info("chunked");
-    /*
-    U64 chunk_count = (largest_column_size + GPU_MAX_BUFFER_SIZE - 1) / GPU_MAX_BUFFER_SIZE;
-    U64 chunk_size = GPU_MAX_BUFFER_SIZE;
-    //U64 rows_per_chunk = chunk_size / column->size;
-    U64 rows_per_chunk = chunk_size / table->row_count;
-    */
     U64 row_size = 0;
     for (String8Node* node = active_columns.first; node != NULL; node = node->next)
     {
@@ -411,8 +341,6 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
                                                      &size
                                                      );
           
-          //debug_gdb_column_get_data_range(column, r1u64(0, 40));
-          
           if (data_ptr)
           {
             column_gpu_buffers[column_index] = gpu_buffer_alloc(size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, data_ptr);
@@ -433,9 +361,12 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       gpu_kernel_set_arg_buffer(kernel, gpu_buffer_count + 1, result_counter_buffer);
       gpu_kernel_set_arg_u64(kernel,    gpu_buffer_count + 2, chunk_rows);
       
+      // tec: TODO fix local size
       //gpu_kernel_execute(kernel, chunk_rows, 1);
-      gpu_kernel_execute(kernel, chunk_rows, 32);
-      
+      U64 local_size = 1;
+      U64 group_size = (chunk_rows + (local_size - 1)) / local_size * local_size;
+      //gpu_kernel_execute(kernel, chunk_rows, 32);
+      gpu_kernel_execute(kernel, chunk_rows, local_size);
       
       U64 result_count = 0;
       gpu_buffer_read(result_counter_buffer, &result_count, sizeof(U64));
@@ -472,7 +403,6 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   }
   else
   {
-    log_info("non chunked");
     GPU_Buffer** column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
     U32 column_index = 0;
     
@@ -485,7 +415,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         GDB_StringDataChunk chunk = gdb_column_get_string_chunk(arena,
                                                                 column,
                                                                 r1u64(0, table->row_count));
-        debug_gdb_column_get_string_chunk(column, r1u64(0, table->row_count));
+        
         if (chunk.data && chunk.offsets)
         {
           column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.data);
@@ -497,7 +427,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         }
         else
         {
-          log_error("Failed to load string data or offsets for column: %.*s", str8_varg(column->name));
+          log_error("failed to load string data or offsets for column: %.*s", str8_varg(column->name));
         }
       }
       else
@@ -543,5 +473,6 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     }
   }
   
+  ProfEnd();
   return result;
 }

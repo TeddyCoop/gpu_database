@@ -161,32 +161,6 @@
 # define BUILD_VERSION_PATCH 0
 #endif
 
-#define BUILD_VERSION_STRING_LITERAL Stringify(BUILD_VERSION_MAJOR) "." Stringify(BUILD_VERSION_MINOR) "." Stringify(BUILD_VERSION_PATCH)
-#if BUILD_DEBUG
-# define BUILD_MODE_STRING_LITERAL_APPEND " [Debug]"
-#else
-# define BUILD_MODE_STRING_LITERAL_APPEND ""
-#endif
-#if defined(BUILD_GIT_HASH)
-# define BUILD_GIT_HASH_STRING_LITERAL_APPEND " [" BUILD_GIT_HASH "]"
-#else
-# define BUILD_GIT_HASH_STRING_LITERAL_APPEND ""
-#endif
-
-#if !defined(BUILD_TITLE)
-# define BUILD_TITLE "Untitled"
-#endif
-
-#if !defined(BUILD_RELEASE_PHASE_STRING_LITERAL)
-# define BUILD_RELEASE_PHASE_STRING_LITERAL "ALPHA"
-#endif
-
-#if !defined(BUILD_ISSUES_LINK_STRING_LITERAL)
-# define BUILD_ISSUES_LINK_STRING_LITERAL "https://github.com/EpicGamesExt/raddebugger/issues"
-#endif
-
-#define BUILD_TITLE_STRING_LITERAL BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ") - " __DATE__ "" BUILD_GIT_HASH_STRING_LITERAL_APPEND BUILD_MODE_STRING_LITERAL_APPEND
-
 ////////////////////////////////
 //~ tec: Zero All Undefined Options
 

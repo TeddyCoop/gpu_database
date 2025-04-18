@@ -40,6 +40,8 @@ sql_is_string_symbol(String8 string)
 internal SQL_TokenizeResult
 sql_tokenize_from_text(Arena* arena, String8 text)
 {
+  ProfBeginFunction();
+  
   SQL_Token* tokens = push_array(arena, SQL_Token, 2056);
   U64 token_count = 0;
   
@@ -158,6 +160,7 @@ sql_tokenize_from_text(Arena* arena, String8 text)
   result.tokens = tokens;
   result.count = token_count;
   
+  ProfEnd();
   return result;
 }
 
@@ -188,6 +191,8 @@ sql_tokens_print(SQL_TokenizeResult tokens)
 internal SQL_Node*
 sql_parse(Arena* arena, SQL_Token* tokens, U64 token_count)
 {
+  ProfBeginFunction();
+  
   U64 token_index = 0;
   SQL_Node *root = NULL;
   SQL_Node *current_node = NULL;
@@ -273,6 +278,7 @@ sql_parse(Arena* arena, SQL_Token* tokens, U64 token_count)
       {
         log_error("unexpected keyword '%.*s' at token index %llu.", 
                   token->value.size, token->value.str, token_index);
+        ProfEnd();
         return NULL;
       }
       
@@ -298,10 +304,12 @@ sql_parse(Arena* arena, SQL_Token* tokens, U64 token_count)
     {
       log_error("unexpected token '%.*s' at token index %llu.", 
                 token->value.size, token->value.str, token_index);
+      ProfEnd();
       return NULL;
     }
   }
   
+  ProfEnd();
   return root;
 }
 

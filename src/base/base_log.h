@@ -3,29 +3,22 @@
 #ifndef BASE_LOG_H
 #define BASE_LOG_H
 
-typedef struct
-{
-  va_list ap;
-  const char *fmt;
-  const char *file;
-  struct tm *time;
-  void *udata;
-  int line;
-  int level;
-} log_Event;
+internal void log_alloc(void);
+internal void log_release(void);
 
-typedef void (*log_LogFn)(log_Event *ev);
-typedef void (*log_LockFn)(B32 lock, void *udata);
+internal void log_logf(const char* level, const char *file, int line, const char* fmt, ...);
 
-enum { LOG_TRACE, LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL, };
+#define log_info(fmt, ...)  log_logf("INFO",  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define log_error(fmt, ...) log_logf("ERROR", __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define log_debug(fmt, ...) log_logf("DEBUG", __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define log_warn(fmt, ...)  log_logf("WARN",  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+#define log_time(fmt, ...)  log_logf("TIME",  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+//#define log_data(fmt, ...)  log_logf("DATA",  __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 
-#define log_trace(...) log_log(LOG_TRACE, __FILE__, __LINE__, __VA_ARGS__)
-#define log_debug(...) log_log(LOG_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
-#define log_info(...)  log_log(LOG_INFO,  __FILE__, __LINE__, __VA_ARGS__)
-#define log_warn(...)  log_log(LOG_WARN,  __FILE__, __LINE__, __VA_ARGS__)
-#define log_error(...) log_log(LOG_ERROR, __FILE__, __LINE__, __VA_ARGS__)
-#define log_fatal(...) log_log(LOG_FATAL, __FILE__, __LINE__, __VA_ARGS__)
-
-void log_log(int level, const char *file, int line, const char *fmt, ...);
+#define log_time_block(name, block) do { \
+U64 ___start = os_now_microseconds(); \
+block; \
+log_time("'%s' took %llu ms", name, (U64)(os_now_microseconds() - ___start) / 1000); \
+} while (0)
 
 #endif //BASE_LOG_H

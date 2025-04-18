@@ -17,6 +17,8 @@ gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
 internal cl_program
 gpu_opencl_build_program(String8 source)
 {
+  ProfBeginFunction();
+  
   cl_program program = { 0 };
   cl_int ret = 0;
   
@@ -35,13 +37,15 @@ gpu_opencl_build_program(String8 source)
     log_error("build log:\n%s\n", log);
   }
   
-  
+  ProfEnd();
   return program;
 }
 
 internal void
 gpu_init(void)
 {
+  ProfBeginFunction();
+  
   Arena* arena = arena_alloc();
   g_opencl_state = push_array(arena, GPU_State, 1);
   g_opencl_state->arena = arena;
@@ -53,28 +57,32 @@ gpu_init(void)
   ret = clGetPlatformIDs(1, &g_opencl_state->platform, NULL);
   if (ret != CL_SUCCESS)
   {
-    log_error("Failed to get OpenCL platform.\n");
+    log_error("Failed to get OpenCL platform.");
   }
   
   ret = clGetDeviceIDs(g_opencl_state->platform, CL_DEVICE_TYPE_GPU, 1, &g_opencl_state->device, NULL);
   if (ret != CL_SUCCESS) 
   {
-    log_error("Failed to get OpenCL device.\n");
+    log_error("Failed to get OpenCL device.");
   }
+  
+  
   
   //- tec: create context
   g_opencl_state->context = clCreateContext(NULL, 1, &g_opencl_state->device, NULL, NULL, &ret);
   if (ret != CL_SUCCESS) 
   {
-    log_error("Failed to create OpenCL context.\n");
+    log_error("Failed to create OpenCL context.");
   }
   
   //- tec: create command queue
   g_opencl_state->command_queue = clCreateCommandQueue(g_opencl_state->context, g_opencl_state->device, 0, &ret);
   if (ret != CL_SUCCESS) 
   {
-    log_error("Failed to create OpenCL command queue.\n");
+    log_error("Failed to create OpenCL command queue.");
   }
+  
+  ProfEnd();
 }
 
 internal void
@@ -86,10 +94,33 @@ gpu_release(void)
   arena_release(g_opencl_state->arena);
 }
 
+internal U64
+gpu_device_total_memory(void)
+{
+  cl_int err;
+  cl_ulong total_memory = 0;
+  
+  err = clGetDeviceInfo(g_opencl_state->device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &total_memory, NULL);
+  if (err != CL_SUCCESS)
+  {
+    log_error("failed to get CL_DEVICE_GLOBAL_MEM_SIZE (err %d)\n", err);
+  }
+  
+  return (U64)total_memory;
+}
+
+internal U64
+gpu_device_free_memory(void)
+{
+  return 0;
+}
+
 //~ tec: buffer
 internal GPU_Buffer*
 gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data)
 {
+  ProfBeginFunction();
+  
   GPU_Buffer* buffer = push_array(g_opencl_state->arena, GPU_Buffer, 1);
   
   cl_int result = 0;
@@ -102,9 +133,11 @@ gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data)
   if (result != CL_SUCCESS) 
   {
     log_error("failed to create buffer, error: %i", result);
+    ProfEnd();
     return NULL;
   }
   
+  ProfEnd();
   return buffer;
 }
 
@@ -118,29 +151,31 @@ gpu_buffer_release(GPU_Buffer* buffer)
 internal void
 gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size)
 {
-  ProfCodeBegin(clEnqueueWriteBuffer);
-  {
-    clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
-    clFinish(g_opencl_state->command_queue);
-  }
-  ProfCodeEnd(clEnqueueWriteBuffer);
+  ProfBeginFunction();
+  
+  clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  clFinish(g_opencl_state->command_queue);
+  
+  ProfEnd();
 }
 
 internal void
 gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 {
-  ProfCodeBegin(clEnqueueReadBuffer);
-  {
-    clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
-    clFinish(g_opencl_state->command_queue);
-  }
-  ProfCodeEnd(clEnqueueReadBuffer);
+  ProfBeginFunction();
+  
+  clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
+  clFinish(g_opencl_state->command_queue);
+  
+  ProfEnd();
 }
 
 //~ tec: kernel
 internal GPU_Kernel*
 gpu_kernel_alloc(String8 name, String8 src)
 {
+  ProfBeginFunction();
+  
   GPU_Kernel* kernel = push_array(g_opencl_state->arena, GPU_Kernel, 1);
   
   cl_int ret = 0;
@@ -153,9 +188,11 @@ gpu_kernel_alloc(String8 name, String8 src)
   if (ret != CL_SUCCESS) 
   {
     log_error("failed to create kernel \'%.*s\'", str8_varg(kernel->name));
+    ProfEnd();
     return NULL;
   }
   
+  ProfEnd();
   return kernel;
 }
 
@@ -169,16 +206,13 @@ gpu_kernel_release(GPU_Kernel *kernel)
 internal void
 gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size)
 {
+  ProfBeginFunction();
+  
   cl_int err;
   size_t global_size[] = { global_work_size };
   size_t local_size[] = { local_work_size };
   
-  ProfCodeBegin(clEnqueueNDRangeKernel);
-  {
-    err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
-  }
-  ProfCodeEnd(clEnqueueNDRangeKernel);
-  
+  err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
   if (err != CL_SUCCESS)
   {
     log_error("failed to execute OpenCL kernel (Code: %d)", err);
@@ -187,26 +221,32 @@ gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size
   
   // tec: wait for execution to complete
   clFinish(g_opencl_state->command_queue);
+  
+  ProfEnd();
 }
 
 internal void
 gpu_kernel_set_arg_buffer(GPU_Kernel* kernel, U32 index, GPU_Buffer* buffer)
 {
+  ProfBeginFunction();
   cl_int err = clSetKernelArg(kernel->kernel, index, sizeof(cl_mem), &buffer->buffer);
   if (err != CL_SUCCESS)
   {
     log_error("failed to set argument %u for kernel (code: %d)", index, err);
   }
+  ProfEnd();
 }
 
 internal void
 gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
 {
+  ProfBeginFunction();
   cl_int err = clSetKernelArg(kernel->kernel, index, sizeof(cl_ulong), &value);
   if (err != CL_SUCCESS)
   {
     log_error("failed to set argument %llu for kernel (code: %d)", index, err);
   }
+  ProfEnd();
 }
 
 //~ tec: kernel generation
@@ -219,7 +259,6 @@ str8_lit_comp(
               "    ulong start = offsets[row_index];\n"
               "    ulong end = offsets[row_index+1];\n"
               "    ulong str_size = end - start;\n"
-              //"    printf(\"compare_size %lu | size %lu\", (ulong)compare_size, str_size);\n"
               "    if (str_size != (ulong)compare_size) return 0;\n"
               "\n"
               "    for (ulong i = 0; i < str_size; i++) {\n"
@@ -228,7 +267,6 @@ str8_lit_comp(
               "        }\n"
               "    }\n"
               "\n"
-              //"printf(\"found matching str row_index %lu\\n\", row_index);\n"
               "    return 1;\n"
               "}\n"
               );
@@ -311,51 +349,53 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
         if (str8_match(condition->value, str8_lit("=="), 0))
         {
           str8_list_pushf(arena, builder, "gpu_str_match(%.*s_data, %.*s_offsets, i, row_count, \"%.*s\", %llu)",
-                          (int)left->value.size, left->value.str,
-                          (int)left->value.size, left->value.str,
-                          (int)right->value.size, right->value.str,
+                          str8_varg(left->value),
+                          str8_varg(left->value),
+                          str8_varg(right->value),
                           right->value.size);
         }
         else if (str8_match(condition->value, str8_lit("contains"), StringMatchFlag_CaseInsensitive))
         {
           str8_list_pushf(arena, builder, "gpu_str_contains(%.*s_data, %.*s_offsets, i, \"%.*s\", %llu)",
-                          (int)left->value.size, left->value.str,
-                          (int)left->value.size, left->value.str,
-                          (int)right->value.size, right->value.str,
+                          str8_varg(left->value),
+                          str8_varg(left->value),
+                          str8_varg(right->value),
                           right->value.size);
         }
         else
         {
-          str8_list_pushf(arena, builder, "%.*s[i] ", (int)left->value.size, left->value.str);
-          str8_list_pushf(arena, builder, "%.*s", (int)condition->value.size, condition->value.str);
-          str8_list_pushf(arena, builder, " \"%.*s\"", (int)right->value.size, right->value.str);
+          str8_list_pushf(arena, builder, "%.*s[i] ", str8_varg(left->value));
+          str8_list_pushf(arena, builder, "%.*s", str8_varg(condition->value));
+          str8_list_pushf(arena, builder, " \"%.*s\"", str8_varg(right->value));
         }
       }
       else
       {
         str8_list_pushf(arena, builder, "%.*s[i] %.*s %.*s", 
-                        (int)left->value.size, left->value.str,
-                        (int)condition->value.size, condition->value.str,
-                        (int)right->value.size, right->value.str);
+                        str8_varg(left->value),
+                        str8_varg(condition->value),
+                        str8_varg(right->value));
       }
     }
   }
   else if (condition->type == IR_NodeType_Column)
   {
-    str8_list_pushf(arena, builder, "%.*s[i]", (int)condition->value.size, condition->value.str);
+    str8_list_pushf(arena, builder, "%.*s[i]", str8_varg(condition->value));
   }
   else if (condition->type == IR_NodeType_Literal)
   {
-    str8_list_pushf(arena, builder, "\"%.*s\"", (int)condition->value.size, condition->value.str);
+    str8_list_pushf(arena, builder, "\"%.*s\"", str8_varg(condition->value));
   }
 }
 
 internal String8
-gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* select_ir_node, String8List* active_columns)
+gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* ir_node, String8List* active_columns)
 {
+  ProfBeginFunction();
+  
   String8List builder = { 0 };
   
-  IR_Node* table_node = ir_node_find_child(select_ir_node, IR_NodeType_Table);
+  IR_Node* table_node = ir_node_find_child(ir_node, IR_NodeType_Table);
   if (!table_node)
   {
     log_error("kernel is missing a table");
@@ -366,20 +406,19 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {
     String8 str = node->string;
-    GDB_ColumnType column_type = ir_find_column_type(database, select_ir_node, str);
+    GDB_ColumnType column_type = ir_find_column_type(database, ir_node, str);
     if (column_type == GDB_ColumnType_String8)
     {
       contains_string_column = 1;
     }
   }
   
-  //str8_list_push(arena, &builder, str8_lit("#pragma OPENCL EXTENSION cl_amd_printf : enable\n"));
   if (contains_string_column)
   {
     str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
     str8_list_push(arena, &builder, g_gpu_opencl_str_contains_code);
+    str8_list_push(arena, &builder, str8_lit("\n"));
   }
-  str8_list_push(arena, &builder, str8_lit("\n"));
   str8_list_push(arena, &builder, str8_lit("__kernel void "));
   str8_list_push(arena, &builder, kernel_name);
   str8_list_push(arena, &builder, str8_lit("(\n"));
@@ -387,28 +426,28 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {
     String8 str = node->string;
-    GDB_ColumnType column_type = ir_find_column_type(database, select_ir_node, str);
+    GDB_ColumnType column_type = ir_find_column_type(database, ir_node, str);
     String8 type_string = gpu_opencl_type_from_column_type(column_type);
     if (column_type == GDB_ColumnType_String8)
     {
       str8_list_pushf(arena, &builder, 
                       "__global const %.*s* %.*s_data,\n", 
-                      (int)type_string.size, type_string.str,
-                      (int)str.size, str.str);
+                      str8_varg(type_string),
+                      str8_varg(str));
       str8_list_pushf(arena, &builder, 
                       "__global const ulong* %.*s_offsets,\n",
-                      (int)str.size, str.str);
+                      str8_varg(str));
     }
     else
     {
       str8_list_pushf(arena, &builder, 
                       "__global const %.*s* %.*s,\n", 
-                      (int)type_string.size, type_string.str,
-                      (int)str.size, str.str);
+                      str8_varg(type_string),
+                      str8_varg(str));
     }
   }
   
-  IR_Node* where_clause = ir_node_find_child(select_ir_node, IR_NodeType_Where);
+  IR_Node* where_clause = ir_node_find_child(ir_node, IR_NodeType_Where);
   
   str8_list_push(arena, &builder, str8_lit("__global ulong* output_indices,\n"));
   //str8_list_push(arena, &builder, str8_lit("__global atomic_ulong* output_count,\n"));
@@ -417,11 +456,6 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   
   str8_list_push(arena, &builder, str8_lit("  ulong i = get_global_id(0);\n"));
   str8_list_push(arena, &builder, str8_lit("  if (i >= row_count) return;\n"));
-  //str8_list_push(arena, &builder, str8_lit("  if (i <= 38) printf(\"col_1[38]=%lu\\n\", col_1_int[i]);\n"));
-  //str8_list_push(arena, &builder, str8_lit("  if (i <= 40) {\n"));
-  //str8_list_push(arena, &builder, str8_lit("  printf(\"%lu\\n\", col_1_int[i]);\n"));
-  //str8_list_push(arena, &builder, str8_lit("  printf(\"%lu\\n\", i);\n"));
-  //str8_list_push(arena, &builder, str8_lit("  }\n"));
   
   if (where_clause)
   {
@@ -431,7 +465,6 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     //str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_fetch_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    output_indices[index] = i;\n"));
-    str8_list_push(arena, &builder, str8_lit("    printf(\"output index %i| column index %i\", index, i);\n"));
     
     str8_list_push(arena, &builder, str8_lit("  }\n"));
   }
@@ -440,7 +473,10 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     str8_list_push(arena, &builder, str8_lit("  output_indices[i] = 1;\n"));
   }
   
-  str8_list_push(arena, &builder, str8_lit("}\n"));
+  str8_list_push(arena, &builder, str8_lit("}"));
   
-  return str8_list_join(arena, &builder, NULL);
+  String8 result = str8_list_join(arena, &builder, NULL);
+  
+  ProfEnd();
+  return result;
 }

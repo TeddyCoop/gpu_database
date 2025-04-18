@@ -172,7 +172,7 @@
 //~ tec: Atomic Operations
 
 #if OS_WINDOWS
-# include <windows.h>
+//# include <windows.h>
 # include <tmmintrin.h>
 # include <wmmintrin.h>
 # include <intrin.h>

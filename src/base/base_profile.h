@@ -6,8 +6,8 @@
 ////////////////////////////////
 //~ tec: Zero Settings
 
-#if !defined(PROFILE_REMOTERY)
-# define PROFILE_REMOTERY 0
+#if !defined(PROFILE_CUSTOM)
+# define PROFILE_CUSTOM 0
 #endif
 
 #if !defined(MARKUP_LAYER_COLOR)
@@ -17,31 +17,48 @@
 ////////////////////////////////
 //~ tec: Third Party Includes
 
-#if PROFILE_REMOTERY
-# include "third_party/Remotery/Remotery.h"
-#endif
+//~ tec: custom
+#if PROFILE_CUSTOM
+typedef enum 
+{
+  ProfEventType_Begin,
+  ProfEventType_End,
+  ProfEventType_Msg
+} ProfEventType;
 
-////////////////////////////////
-//~ tec: Remotery Profile Defines
-#if PROFILE_REMOTERY
-global Remotery* __g_rmt = 0;
+typedef struct ProfEvent ProfEvent;
+typedef struct ProfState ProfState;
 
-#define REMOTERY_BUFFER_SIZE 256
-#define REMOTERY_VA_ARGS_TO_STRING(buf, ...) \
-char buf[REMOTERY_BUFFER_SIZE]; \
-snprintf(buf, REMOTERY_BUFFER_SIZE, __VA_ARGS__);
 
-//#define ProfBegin(name) rmt_BeginCPUSampleStr(name, 0)
-#define ProfBegin(...) do { REMOTERY_VA_ARGS_TO_STRING(buf, __VA_ARGS__); rmt_BeginCPUSampleStr(buf, 0); } while (0)
-#define ProfBeginDynamic(name) rmt_BeginCPUSampleDynamic(name, 0)
-# define ProfEnd(...) rmt_EndCPUSample()
-# define ProfTick(...) rmt_MarkFrame()
-# define ProfIsCapturing(...) (1)
-# define ProfBeginCapture(...) (rmt_CreateGlobalInstance(&__g_rmt))
-# define ProfEndCapture(...) (rmt_DestroyGlobalInstance(__g_rmt))
-#define ProfThreadName(...) do { REMOTERY_VA_ARGS_TO_STRING(buf, __VA_ARGS__); rmt_SetCurrentThreadName(buf); } while (0)
-//# define ProfThreadName(...) (REMOTERY_VA_ARGS_TO_STRING(__VA_ARGS__); rmt_SetCurrentThreadName(buffer);)
-# define ProfMsg(...) do { REMOTERY_VA_ARGS_TO_STRING(buf, __VA_ARGS__); rmt_LogText(buf); } while (0)
+global ProfState* g_prof = 0;
+
+internal void prof_alloc(void);
+internal void prof_release(void);
+internal void prof_json_dump(void);
+internal void prof_record_event(ProfEventType type, const char *name, const char *file, int line);
+
+#define ProfBegin(...) do {                                   \
+char buf[256];                                            \
+snprintf(buf, sizeof(buf), __VA_ARGS__);                  \
+prof_record_event(ProfEventType_Begin, buf, __FILE__, __LINE__); \
+} while (0)
+
+# define ProfBeginDynamic(...) \
+char buf[256];                                            \
+snprintf(buf, sizeof(buf), __VA_ARGS__);                  \
+prof_record_event(ProfEventType_Begin, buf, __FILE__, __LINE__); \
+} while (0)
+
+#define ProfEnd() do {                                   \
+prof_record_event(ProfEventType_End, NULL, __FILE__, __LINE__); \
+} while (0)
+
+# define ProfTick(...) (0)
+# define ProfIsCapturing(...) (0)
+# define ProfBeginCapture(...) prof_alloc();
+# define ProfEndCapture(...) prof_release();
+# define ProfThreadName(...) (0)
+# define ProfMsg(...) (0)
 # define ProfBeginLockWait(...)    (0)
 # define ProfEndLockWait(...)      (0)
 # define ProfLockTake(...)         (0)

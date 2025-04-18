@@ -20,6 +20,8 @@ ir_generate_recursive(Arena* arena, SQL_Node* sql_node)
 internal IR_Query*
 ir_generate_from_ast(Arena* arena, SQL_Node* ast_root)
 {
+  ProfBeginFunction();
+  
   IR_Query *ir_query = push_array(arena, IR_Query, 1);
   
   IR_Node **ir_node_next = &ir_query->execution_nodes;
@@ -32,6 +34,8 @@ ir_generate_from_ast(Arena* arena, SQL_Node* ast_root)
     ir_node_next = &ir_node->next;
     ir_query->count++;
   }
+  
+  ProfEnd();
   return ir_query;
 }
 

@@ -4,7 +4,6 @@ set MSVC=1
 set CLANG=0
 set DEBUG=1
 set RELEASE=0
-set NO_METAGEN=1
 
 :: compile defintions
 set cl_common=     /I..\src\ /I..\src\third_party\CL /nologo /FC /Z7
@@ -43,19 +42,6 @@ if %RELEASE%==1   set compile=%compile_release%
 
 :: prep dirs
 if not exist build mkdir build
-
-:: build and run metagen
-:: if %NO_METAGEN%==1 echo [skipping metagen]
-:: if not %NO_METAGEN%==1 (
-::  pushd build
-::  %compile_debug% ..\src\metagen\metagen_main.c %compile_link% %out%metagen.exe || exit /b 1
-::  metagen.exe || exit /b 1
-:: 	popd
-::)
-
-:: pushd build
-:: metagen.exe || exit /b 1
-:: popd
 
 :: build
 pushd build

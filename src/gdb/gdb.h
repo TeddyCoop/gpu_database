@@ -132,6 +132,28 @@ struct GDB_Table
   struct GDB_Database* parent_database;
 };
 
+// tec: multithreading csv
+typedef struct GDB_CSV_ThreadColumnData GDB_CSV_ThreadColumnData;
+struct GDB_CSV_ThreadColumnData
+{
+  void** values;
+  U64 count;
+  GDB_ColumnType type;
+};
+
+typedef struct GDB_CSV_ThreadContext GDB_CSV_ThreadContext;
+struct GDB_CSV_ThreadContext
+{
+  GDB_Table* table;
+  Rng1U64 range;
+  OS_Handle map;
+  OS_Handle mutex;
+  U64 offset_within_view;
+  GDB_CSV_ThreadColumnData* columns;
+  Arena* arena;
+};
+
+
 typedef struct GDB_Database GDB_Database;
 struct GDB_Database
 {

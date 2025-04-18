@@ -1,146 +1,59 @@
-#define MAX_CALLBACKS 32
-
-#include <time.h>
-
-typedef struct {
-  log_LogFn fn;
-  void *udata;
-  int level;
-} Callback;
-
-static struct {
-  void *udata;
-  log_LockFn lock;
-  int level;
-  B32 quiet;
-  Callback callbacks[MAX_CALLBACKS];
-} L;
-
-
-static const char *level_strings[] = {
-  "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"
+typedef struct Log Log;
+struct Log
+{
+  Arena* arena;
+  OS_Handle lock_mutex;
+  OS_Handle log_file;
+  U64 log_file_offset;
 };
 
-#ifdef LOG_USE_COLOR
-static const char *level_colors[] = {
-  "\x1b[94m", "\x1b[36m", "\x1b[32m", "\x1b[33m", "\x1b[31m", "\x1b[35m"
-};
-#endif
+global Log* g_log = 0;
 
-
-static void stdout_callback(log_Event *ev) {
-  char buf[16];
-  buf[strftime(buf, sizeof(buf), "%H:%M:%S", ev->time)] = '\0';
-#ifdef LOG_USE_COLOR
-  fprintf(
-          ev->udata, "%s %s%-5s\x1b[0m \x1b[90m%s:%d:\x1b[0m ",
-          buf, level_colors[ev->level], level_strings[ev->level],
-          ev->file, ev->line);
-#else
-  fprintf(
-          ev->udata, "%s %-5s %s:%d: ",
-          buf, level_strings[ev->level], ev->file, ev->line);
-#endif
-  vfprintf(ev->udata, ev->fmt, ev->ap);
-  fprintf(ev->udata, "\n");
-  fflush(ev->udata);
+internal void
+log_alloc(void)
+{
+  Arena* arena = arena_alloc();
+  g_log = push_array(arena, Log, 1);
+  g_log->arena = arena;
+  
+  g_log->lock_mutex = os_rw_mutex_alloc();
+  g_log->log_file = os_file_open(OS_AccessFlag_Write, str8_lit("log.txt"));
 }
 
-
-static void file_callback(log_Event *ev) {
-  char buf[64];
-  buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", ev->time)] = '\0';
-  fprintf(
-          ev->udata, "%s %-5s %s:%d: ",
-          buf, level_strings[ev->level], ev->file, ev->line);
-  vfprintf(ev->udata, ev->fmt, ev->ap);
-  fprintf(ev->udata, "\n");
-  fflush(ev->udata);
+internal void
+log_release(void)
+{
+  os_file_close(g_log->log_file);
+  os_mutex_release(g_log->lock_mutex);
+  arena_release(g_log->arena);
 }
 
-
-static void lock(void)   {
-  if (L.lock) { L.lock(1, L.udata); }
-}
-
-
-static void unlock(void) {
-  if (L.lock) { L.lock(0, L.udata); }
-}
-
-
-const char* log_level_string(int level) {
-  return level_strings[level];
-}
-
-
-void log_set_lock(log_LockFn fn, void *udata) {
-  L.lock = fn;
-  L.udata = udata;
-}
-
-
-void log_set_level(int level) {
-  L.level = level;
-}
-
-
-void log_set_quiet(B32 enable) {
-  L.quiet = enable;
-}
-
-
-int log_add_callback(log_LogFn fn, void *udata, int level) {
-  for (int i = 0; i < MAX_CALLBACKS; i++) {
-    if (!L.callbacks[i].fn) {
-      L.callbacks[i] = (Callback) { fn, udata, level };
-      return 0;
+internal void
+log_logf(const char* level, const char *file, int line, const char* fmt, ...)
+{
+  OS_MutexScopeW(g_log->lock_mutex)
+  {
+    char buffer[1024];
+    
+    DateTime time = os_now_universal_time();
+    
+    int offset = 0;
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%02d:%02d:%02d ", time.hour, time.min, time.sec);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s %s:%d: ", level, file, line);
+    
+    va_list args;
+    va_start(args, fmt);
+    offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
+    va_end(args);
+    
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\n");
+    
+    if (!os_handle_match(os_handle_zero(), g_log->log_file))
+    {
+      os_file_write(g_log->log_file, r1u64(g_log->log_file_offset, g_log->log_file_offset + offset), buffer);
+      g_log->log_file_offset += offset;
     }
+    
+    fprintf(stderr, buffer);
   }
-  return -1;
-}
-
-
-int log_add_fp(FILE *fp, int level) {
-  return log_add_callback(file_callback, fp, level);
-}
-
-
-static void init_event(log_Event *ev, void *udata) {
-  if (!ev->time) {
-    time_t t = time(NULL);
-    ev->time = localtime(&t);
-  }
-  ev->udata = udata;
-}
-
-
-void log_log(int level, const char *file, int line, const char *fmt, ...) {
-  log_Event ev = {
-    .fmt   = fmt,
-    .file  = file,
-    .line  = line,
-    .level = level,
-  };
-  
-  lock();
-  
-  if (!L.quiet && level >= L.level) {
-    init_event(&ev, stderr);
-    va_start(ev.ap, fmt);
-    stdout_callback(&ev);
-    va_end(ev.ap);
-  }
-  
-  for (int i = 0; i < MAX_CALLBACKS && L.callbacks[i].fn; i++) {
-    Callback *cb = &L.callbacks[i];
-    if (level >= cb->level) {
-      init_event(&ev, cb->udata);
-      va_start(ev.ap, fmt);
-      cb->fn(&ev);
-      va_end(ev.ap);
-    }
-  }
-  
-  unlock();
 }
