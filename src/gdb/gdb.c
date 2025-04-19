@@ -23,6 +23,8 @@ gdb_release(void)
 internal void
 gdb_add_database(GDB_Database* database)
 {
+  ProfBeginFunction();
+  
   if (g_gdb_state->database_count == 0)
   {
     g_gdb_state->databases = push_array(g_gdb_state->arena, GDB_Database*, 2);
@@ -37,8 +39,8 @@ gdb_add_database(GDB_Database* database)
     g_gdb_state->database_capacity = new_capacity;
   }
   
-  
   g_gdb_state->databases[g_gdb_state->database_count++] = database;
+  ProfEnd();
 }
 
 //~ tec: database
@@ -175,15 +177,18 @@ gdb_database_close(GDB_Database* database)
 internal GDB_Table* 
 gdb_database_find_table(GDB_Database* database, String8 table_name)
 {
+  ProfBeginFunction();
   for (U64 i = 0; i < database->table_count; i++)
   {
     GDB_Table* table = database->tables[i];
     if (str8_match(table->name, table_name, 0))
     {
+      ProfEnd();
       return table;
     }
   }
   log_error("failed to find table '%.*s' in database '%.*s'", str8_varg(table_name), str8_varg(database->name));
+  ProfEnd();
   return NULL;
 }
 
@@ -191,13 +196,17 @@ gdb_database_find_table(GDB_Database* database, String8 table_name)
 internal B32
 gdb_database_contains_table(GDB_Database* database, String8 table_name)
 {
+  ProfBeginFunction();
+  
   for (U64 i = 0; i < database->table_count; i++)
   {
     if (str8_match(database->tables[i]->name, table_name, 0))
     {
+      ProfEnd();
       return 1;
     }
   }
+  ProfEnd();
   return 0;
 }
 
@@ -224,6 +233,8 @@ gdb_table_release(GDB_Table* table)
 internal void
 gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema)
 {
+  ProfBeginFunction();
+  
   if (table->column_count == 0)
   {
     table->columns = push_array(table->arena, GDB_Column*, 2);
@@ -242,6 +253,8 @@ gdb_table_add_column(GDB_Table* table, GDB_ColumnSchema schema)
   GDB_Column* column = gdb_column_alloc(schema.name, schema.type, schema.size);
   column->parent_table = table;
   table->columns[table->column_count++] = column;
+  
+  ProfEnd();
 }
 
 internal void

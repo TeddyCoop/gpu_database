@@ -12,6 +12,7 @@ struct ProfEvent
 struct ProfState
 {
   Arena *arena;
+  OS_Handle mutex;
   ProfEvent *events;
   U64 event_count;
   U64 event_capacity;
@@ -27,8 +28,9 @@ prof_alloc(void)
   Arena* arena = arena_alloc();
   g_prof = push_array(arena, ProfState, 1);
   g_prof->arena = arena;
+  g_prof->mutex = os_mutex_alloc();
   
-  g_prof->event_capacity = 8192;
+  g_prof->event_capacity = 8192*2;
   g_prof->events = push_array(arena, ProfEvent, g_prof->event_capacity);
   g_prof->event_count = 0;
 }
@@ -37,6 +39,7 @@ prof_alloc(void)
 internal void
 prof_release(void)
 {
+  os_mutex_release(g_prof->mutex);
   prof_json_dump();
   arena_release(g_prof->arena);
 }
@@ -78,55 +81,58 @@ prof_json_dump()
 internal void
 prof_record_event(ProfEventType type, const char *name, const char *file, int line)
 {
-  if (g_prof->event_count >= g_prof->event_capacity) 
+  OS_MutexScope(g_prof->mutex)
   {
-    g_prof->event_capacity = (g_prof->event_capacity ? g_prof->event_capacity * 2 : 1024);
-    g_prof->events = push_array(g_prof->arena, ProfEvent, g_prof->event_capacity);
-  }
-  
-  U64 idx = g_prof->event_count++;
-  ProfEvent *ev = &g_prof->events[idx];
-  ev->type = type;
-  ev->timestamp = os_now_microseconds();
-  ev->thread_id = os_tid();
-  
-  if (type == ProfEventType_Begin) 
-  {
-    ev->name = push_str8f(g_prof->arena, "%s", name);
-    ev->file = push_str8f(g_prof->arena, "%s", file);
-    ev->line = line;
     
-    if (g_prof->begin_stack_count >= g_prof->begin_stack_capacity) 
+    if (g_prof->event_count >= g_prof->event_capacity) 
     {
-      g_prof->begin_stack_capacity = (g_prof->begin_stack_capacity ? g_prof->begin_stack_capacity * 2 : 128);
-      g_prof->begin_stack = push_array(g_prof->arena, U64, g_prof->begin_stack_capacity);
+      g_prof->event_capacity = (g_prof->event_capacity ? g_prof->event_capacity * 2 : 1024);
+      g_prof->events = push_array(g_prof->arena, ProfEvent, g_prof->event_capacity);
     }
-    g_prof->begin_stack[g_prof->begin_stack_count++] = idx;
-  }
-  else if (type == ProfEventType_End)
-  {
-    if (g_prof->begin_stack_count == 0)
+    
+    U64 idx = g_prof->event_count++;
+    ProfEvent *ev = &g_prof->events[idx];
+    ev->type = type;
+    ev->timestamp = os_now_microseconds();
+    ev->thread_id = os_tid();
+    
+    if (type == ProfEventType_Begin) 
     {
-      ev->name = push_str8_copy(g_prof->arena, str8_lit("MISSING BEGIN"));
+      ev->name = push_str8f(g_prof->arena, "%s", name);
       ev->file = push_str8f(g_prof->arena, "%s", file);
       ev->line = line;
-    } 
-    else 
-    {
-      U64 begin_idx = g_prof->begin_stack[--g_prof->begin_stack_count];
-      ProfEvent *begin_ev = &g_prof->events[begin_idx];
       
-      ev->name = begin_ev->name;
-      ev->file = begin_ev->file;
-      ev->line = begin_ev->line;
+      if (g_prof->begin_stack_count >= g_prof->begin_stack_capacity) 
+      {
+        g_prof->begin_stack_capacity = (g_prof->begin_stack_capacity ? g_prof->begin_stack_capacity * 2 : 128);
+        g_prof->begin_stack = push_array(g_prof->arena, U64, g_prof->begin_stack_capacity);
+      }
+      g_prof->begin_stack[g_prof->begin_stack_count++] = idx;
+    }
+    else if (type == ProfEventType_End)
+    {
+      if (g_prof->begin_stack_count == 0)
+      {
+        ev->name = push_str8_copy(g_prof->arena, str8_lit("MISSING BEGIN"));
+        ev->file = push_str8f(g_prof->arena, "%s", file);
+        ev->line = line;
+      } 
+      else 
+      {
+        U64 begin_idx = g_prof->begin_stack[--g_prof->begin_stack_count];
+        ProfEvent *begin_ev = &g_prof->events[begin_idx];
+        
+        ev->name = begin_ev->name;
+        ev->file = begin_ev->file;
+        ev->line = begin_ev->line;
+      }
+    }
+    else if (type == ProfEventType_Msg)
+    {
+      ev->name = push_str8f(g_prof->arena, "%s", name);
+      ev->file = push_str8f(g_prof->arena, "%s", file);
+      ev->line = line;
     }
   }
-  else if (type == ProfEventType_Msg)
-  {
-    ev->name = push_str8f(g_prof->arena, "%s", name);
-    ev->file = push_str8f(g_prof->arena, "%s", file);
-    ev->line = line;
-  }
 }
-
 #endif

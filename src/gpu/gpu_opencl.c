@@ -67,7 +67,6 @@ gpu_init(void)
   }
   
   
-  
   //- tec: create context
   g_opencl_state->context = clCreateContext(NULL, 1, &g_opencl_state->device, NULL, NULL, &ret);
   if (ret != CL_SUCCESS) 

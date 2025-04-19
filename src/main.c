@@ -33,11 +33,7 @@ entry_point(void)
   }
   
   gdb_init();
-  
   gpu_init();
-  //{
-  //gpu_init();
-  //}
   
   String8 use_retail_query = str8_lit(
                                       "USE retail;"
