@@ -33,11 +33,11 @@ log_logf(const char* level, const char *file, int line, const char* fmt, ...)
 {
   OS_MutexScopeW(g_log->lock_mutex)
   {
-    char buffer[1024];
+    U8 buffer[1024];
     
     DateTime time = os_now_universal_time();
     
-    int offset = 0;
+    U64 offset = 0;
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%02d:%02d:%02d ", time.hour, time.min, time.sec);
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s %s:%d: ", level, file, line);
     
@@ -54,6 +54,7 @@ log_logf(const char* level, const char *file, int line, const char* fmt, ...)
       g_log->log_file_offset += offset;
     }
     
+    //fprintf(stdout, buffer);
     fprintf(stderr, buffer);
   }
 }

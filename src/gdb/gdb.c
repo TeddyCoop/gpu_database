@@ -577,7 +577,7 @@ THREAD_POOL_TASK_FUNC(gdb_csv_process_chunk)
     return;
   }
   
-  String8Node* row = rows.first->next;
+  String8Node* row = rows.first;
   while (row)
   {
     String8List values = str8_split_by_string_chars(arena, row->string, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
@@ -653,6 +653,9 @@ THREAD_POOL_TASK_FUNC(gdb_csv_process_chunk)
   ProfEnd();
 }
 
+// tec: this function is very slow. it looks the threads are waiting most of the time 
+// a problem could be with the mutex, or the chunk size could be increased
+// or SIMD could be used to read CSV files
 internal GDB_Table*
 gdb_table_import_csv(GDB_Database* database, String8 path)
 {
@@ -788,8 +791,19 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
       }
       os_file_map_view_close(map, scan_ptr, scan_range);
       
+      /*
       U64 adjusted_raw_offset = raw_offset;
       if (!(chunk_offset == 0 && i == 0))
+      {
+        adjusted_raw_offset += skip;
+      }
+      */
+      U64 adjusted_raw_offset = raw_offset;
+      if (chunk_offset == 0 && i == 0)
+      {
+        adjusted_raw_offset = header_size;
+      }
+      else
       {
         adjusted_raw_offset += skip;
       }
@@ -939,6 +953,12 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
     U64 offset_count = column->row_count;
     U64 total_offsets_size = (offset_count + 1) * sizeof(U64);
     
+    if (offset_count == 0)
+    {
+      U64 zero = 0;
+      os_file_write(file, r1u64(offset_array_offset, offset_array_offset + sizeof(U64)), &zero);
+    }
+    
     B32 needs_growth = (var_cap + str->size > var_reserved);
     if (needs_growth)
     {
@@ -976,8 +996,6 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       */
       
       offset_array_offset = sizeof(U64) + var_reserved;
-      //offset_array_offset = sizeof(U64);
-      //offset_array_offset = sizeof(U64);
       
       U64 new_size = offset_array_offset + total_offsets_size;
       os_file_resize(file, new_size);
@@ -988,7 +1006,8 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
     U64 string_offset = var_cap;
     os_file_write(file, r1u64(sizeof(U64) + string_offset, sizeof(U64) + string_offset + str->size), str->str);
     
-    U64 new_end_offset = (offset_count > 0) ? 0 : str->size;
+    //U64 new_end_offset = (offset_count > 0) ? 0 : str->size;
+    U64 new_end_offset = str->size;
     if (offset_count > 0)
     {
       U64 last_offset_pos = offset_array_offset + (offset_count - 1) * sizeof(U64);

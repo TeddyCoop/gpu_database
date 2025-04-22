@@ -96,6 +96,8 @@ gpu_release(void)
 internal U64
 gpu_device_total_memory(void)
 {
+  ProfBeginFunction();
+  
   cl_int err;
   cl_ulong total_memory = 0;
   
@@ -105,6 +107,7 @@ gpu_device_total_memory(void)
     log_error("failed to get CL_DEVICE_GLOBAL_MEM_SIZE (err %d)\n", err);
   }
   
+  ProfEnd();
   return (U64)total_memory;
 }
 

@@ -1,3 +1,4 @@
 /performance_recorder_files
 /build
 src\third_party\CL\OpenCL.lib
+benchmark_info.txt

@@ -1,4 +1,5 @@
 #define BUILD_ENTRY_DEFINING_UNIT 1
+#define BUILD_CONSOLE_INTERFACE 1
 #define PROFILE_CUSTOM 1
 
 #include "base/base_inc.h"
@@ -34,6 +35,8 @@ entry_point(void)
   
   gdb_init();
   gpu_init();
+  
+  log_info("total gpu memory: %llu (MB)", gpu_device_total_memory() >> 20);
   
   String8 use_retail_query = str8_lit(
                                       "USE retail;"
@@ -72,23 +75,30 @@ entry_point(void)
   
   String8 test1_select_query = str8_lit(
                                         "USE test;"
-                                        //"SELECT col_1_int FROM test1_small\n"
-                                        //"SELECT col_1_int FROM test1\n"
                                         "SELECT col_0_str FROM test1 "
-                                        //"WHERE col_1_int == 32548;"
                                         "WHERE col_1_int == 235483;"
-                                        //"WHERE col_1_int == 964191;"
-                                        //"WHERE col_1_int == 506490;"
-                                        //"WHERE col_1_int == 578550;"
                                         );
+  
+  String8 large_dataset_create_query = str8_lit(
+                                                "CREATE DATABASE test2;"
+                                                "IMPORT INTO gen_dataset_1_8gb FROM 'gen_dataset_1_8gb.csv';"
+                                                );
+  
+  String8 large_dataset_select_query = str8_lit(
+                                                "USE test2;"
+                                                "SELECT col_0_str FROM gen_dataset_1_8gb "
+                                                //"SELECT col_1_int FROM gen_dataset_1_8gb "
+                                                //"WHERE col_0_str == 'R5FsosEspfOgAYWPWkT0pzafrGU5pDr25rB9';"
+                                                "WHERE col_1_int == 606126;"
+                                                );
   
   //app_execute_query(complex_sql_query);
   //app_execute_query(create_test_database_query);
   //app_execute_query(use_retail_query);
-  //app_execute_query(human_ai_select_query);
-  //app_execute_query(human_ai_create_query);
+  //app_execute_query(large_dataset_create_query);
+  app_execute_query(large_dataset_select_query);
   //app_execute_query(test1_create_query);
-  app_execute_query(test1_select_query);
+  //app_execute_query(test1_select_query);
   //app_execute_query(pets_query);
   //app_execute_query(real_estate_query);
   
@@ -109,19 +119,11 @@ todo:
 [x]-- if a column count is greater than a threshold, split the query up as to not run out of GPU memory
 --- also means keeping track of the max gpu memory and the memory used by the database 
 
-
-
 - write a function that parses and adds data to a column
 
 - maybe work on other gpu api layers (CUDA, Vulkan)
 
 - more asserts, logging, better profiling
--- maybe a log file
 - comments
 - general optimization, but cant optimize until you profile
-
-- LOTS of testing
--- compare against other sql databases
---- speed, size of the database, amount of memory used
-
 */

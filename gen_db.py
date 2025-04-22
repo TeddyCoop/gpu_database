@@ -31,7 +31,7 @@ column_types = ['str', 'int', 'float', 'str', 'float', 'int', 'str', 'str', 'flo
 
 generate_csv(
     filename='typed_test_db.csv',
-    num_rows=5_000_000,
+    num_rows=10_000_000,
     column_types=column_types,
-    string_length=12
+    string_length=36
 )

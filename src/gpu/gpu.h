@@ -4,6 +4,7 @@
 #define GPU_H
 
 #define GPU_MAX_BUFFER_SIZE MB(64)
+//#define GPU_MAX_BUFFER_SIZE MB(128)
 //#define GPU_MAX_BUFFER_SIZE KB(16)
 //#define GPU_MAX_BUFFER_SIZE KB(64)
 
