@@ -38,8 +38,8 @@ def run_benchmark(db_path, sql_query):
 
     query_start = time.time()
     cursor.execute(sql_query)
-    rows = cursor.fetchall()
     query_end = time.time()
+    rows = cursor.fetchall()
 
     conn.close()
 

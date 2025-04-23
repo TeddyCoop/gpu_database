@@ -28,9 +28,16 @@ entry_point(void)
   
   log_alloc();
   
-  if (!os_file_path_exists(str8_lit("data/")))
+  // tec: create needed folders
   {
-    os_make_directory(str8_lit("data/"));
+    if (!os_file_path_exists(str8_lit("data/")))
+    {
+      os_make_directory(str8_lit("data/"));
+    }
+    if (!os_file_path_exists(str8_lit("kernel_cache/")))
+    {
+      os_make_directory(str8_lit("kernel_cache/"));
+    }
   }
   
   gdb_init();

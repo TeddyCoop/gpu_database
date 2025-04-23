@@ -33,6 +33,10 @@ internal void gpu_release(void);
 internal U64 gpu_device_total_memory(void);
 internal U64 gpu_device_free_memory(void);
 
+internal U64 gpu_hash_from_string(String8 str);
+internal String8 gpu_get_device_id_string(Arena* arena);
+internal String8 gpu_get_kernel_cache_path(Arena* arena, String8 source, String8 kernel_name);
+
 internal GPU_Buffer* gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data);
 internal void gpu_buffer_release(GPU_Buffer* buffer);
 internal void gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size);

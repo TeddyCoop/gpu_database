@@ -22,12 +22,15 @@ gpu_opencl_build_program(String8 source)
   cl_program program = { 0 };
   cl_int ret = 0;
   
+  ProfBegin("clCreateProgramWithSource");
   program = clCreateProgramWithSource(g_opencl_state->context, 1, &source.str, NULL, &ret);
   if (ret != CL_SUCCESS)
   {
     log_error("Failed to create OpenCL program.\n");
   }
+  ProfEnd();
   
+  ProfBegin("clBuildProgram");
   ret = clBuildProgram(program, 1, &g_opencl_state->device, NULL, NULL, NULL);
   if (ret != CL_SUCCESS)
   {
@@ -36,6 +39,7 @@ gpu_opencl_build_program(String8 source)
     clGetProgramBuildInfo(program, g_opencl_state->device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
     log_error("build log:\n%s\n", log);
   }
+  ProfEnd();
   
   ProfEnd();
   return program;
@@ -117,6 +121,42 @@ gpu_device_free_memory(void)
   return 0;
 }
 
+//~ tec: kernel caching
+internal U64 
+gpu_hash_from_string(String8 str)
+{
+  U64 hash = 14695981039346656037ULL;
+  for (U64 i = 0; i < str.size; i++)
+  {
+    hash ^= str.str[i];
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
+
+internal String8
+gpu_get_device_id_string(Arena* arena)
+{
+  char vendor[128], version[128];
+  clGetDeviceInfo(g_opencl_state->device, CL_DEVICE_VENDOR, sizeof(vendor), vendor, NULL);
+  clGetDeviceInfo(g_opencl_state->device, CL_DRIVER_VERSION, sizeof(version), version, NULL);
+  
+  String8 vendor_str = str8_cstring(vendor);
+  String8 version_str = str8_cstring(version);
+  return push_str8f(arena, "%.*s_%.*s", str8_varg(vendor_str), str8_varg(version_str));
+}
+
+internal String8 
+gpu_get_kernel_cache_path(Arena* arena, String8 source, String8 kernel_name)
+{
+  String8 device_id = gpu_get_device_id_string(arena);
+  U64 source_hash = gpu_hash_from_string(source);
+  U64 kernel_hash = gpu_hash_from_string(kernel_name);
+  U64 device_hash = gpu_hash_from_string(device_id);
+  
+  return push_str8f(arena, "kernel_cache/%016llx_%016llx_%016llx.bin", device_hash, source_hash, kernel_hash);
+}
+
 //~ tec: buffer
 internal GPU_Buffer*
 gpu_buffer_alloc(U64 size, GPU_BufferFlags flags, void* data)
@@ -173,6 +213,131 @@ gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 }
 
 //~ tec: kernel
+internal void
+os_file_create_dirs(String8 full_path)
+{
+  Temp scratch = scratch_begin(0, 0);
+  String8 path = push_str8_copy(scratch.arena, full_path);
+  
+  for (U64 i = path.size; i > 0; i--)
+  {
+    if (path.str[i - 1] == '/' || path.str[i - 1] == '\\')
+    {
+      String8 dir_path = str8_substr(path, r1u64(0, i - 1));
+      
+      if (os_file_path_exists(dir_path)) break;
+      
+      // Walk backward, collect missing dirs
+      String8List to_create = {0};
+      for (;;)
+      {
+        str8_list_push_front(scratch.arena, &to_create, dir_path);
+        if (dir_path.size == 0 || os_file_path_exists(dir_path)) break;
+        
+        U64 j;
+        for (j = dir_path.size; j > 0 && dir_path.str[j - 1] != '/' && dir_path.str[j - 1] != '\\'; j--) {}
+        dir_path = str8_substr(dir_path,  r1u64(0, j > 0 ? j - 1 : 0));
+      }
+      
+      for (String8Node *node = to_create.first; node != NULL; node = node->next)
+      {
+        os_make_directory(node->string);
+      }
+      
+      break;
+    }
+  }
+  
+  scratch_end(scratch);
+}
+
+internal cl_program
+gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
+{
+  ProfBeginFunction();
+  Temp scratch = scratch_begin(0, 0);
+  
+  cl_program program = 0;
+  cl_int ret = 0;
+  cl_device_id device = g_opencl_state->device;
+  cl_context context = g_opencl_state->context;
+  
+  String8 cache_path = gpu_get_kernel_cache_path(scratch.arena, source, kernel_name);
+  if (os_file_path_exists(cache_path))
+  {
+    OS_Handle file = os_file_open(OS_AccessFlag_Read, cache_path);
+    U64 file_size = os_properties_from_file(file).size;
+    if (file_size > 0)
+    {
+      String8 str_data = os_string_from_file_range(scratch.arena, file, r1u64(0, file_size));
+      void *binary_data = str_data.str;
+      if (binary_data != NULL)
+      {
+        const unsigned char *binaries[] = { (const unsigned char *)binary_data };
+        size_t lengths[] = { (size_t)file_size };
+        program = clCreateProgramWithBinary(context, 1, &device, lengths, binaries, NULL, &ret);
+        if (ret == CL_SUCCESS)
+        {
+          ret = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
+          if (ret == CL_SUCCESS)
+          {
+            log_info("sucessfully build program '%.*s' from cached binary", str8_varg(kernel_name));
+            scratch_end(scratch);
+            return program;
+          }
+          else
+          {
+            log_error("cached kernel binary failed to build, recompiling from source");
+            clReleaseProgram(program);
+            program = 0;
+          }
+        }
+      }
+    }
+    os_file_close(file);
+  }
+  
+  //- tec: if loading failed, fall back to building from source
+  program = clCreateProgramWithSource(context, 1, &source.str, NULL, &ret);
+  if (ret != CL_SUCCESS)
+  {
+    log_error("failed to create OpenCL program from source");
+    scratch_end(scratch);
+    return 0;
+  }
+  
+  ret = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
+  if (ret != CL_SUCCESS)
+  {
+    char log[4096];
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
+    log_error("OpenCL build failed:\n%s\n", log);
+    clReleaseProgram(program);
+    scratch_end(scratch);
+    return 0;
+  }
+  
+  //- tec: save compiled binary
+  U64 binary_size;
+  clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(U64), &binary_size, NULL);
+  
+  unsigned char *binary = push_array(scratch.arena, unsigned char, binary_size);
+  unsigned char *binaries[] = { binary };
+  clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(binaries), &binaries, NULL);
+  
+  os_file_create_dirs(cache_path);
+  OS_Handle out_file = os_file_open(OS_AccessFlag_Write, cache_path);
+  if (!os_handle_match(os_handle_zero(), out_file))
+  {
+    os_file_write(out_file, r1u64(0, binary_size), binary);
+    os_file_close(out_file);
+  }
+  
+  scratch_end(scratch);
+  ProfEnd();
+  return program;
+}
+
 internal GPU_Kernel*
 gpu_kernel_alloc(String8 name, String8 src)
 {
@@ -182,7 +347,7 @@ gpu_kernel_alloc(String8 name, String8 src)
   
   cl_int ret = 0;
   
-  cl_program program = gpu_opencl_build_program(src);
+  cl_program program = gpu_opencl_load_or_build_program(src, name);
   kernel->name = name;
   kernel->program = program;
   kernel->kernel = clCreateKernel(program, name.str, &ret);
