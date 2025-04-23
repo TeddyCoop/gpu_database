@@ -197,12 +197,17 @@ app_execute_query(String8 sql_query)
       case IR_NodeType_Select:
       {
         ProfBegin("SQL: Select");
+        
+        ir_expand_star_to_columns(arena, database, ir_execution_node);
+        
         String8 kernel_name = str8_lit("select_query");
         APP_KernelResult result = app_perform_kernel(arena, kernel_name, database, ir_execution_node);
+        
         IR_Node* select_output_columns = ir_node_find_child(ir_execution_node, IR_NodeType_ColumnList);
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
         
         log_info("result count %llu", result.count);
+        
         Temp scratch = scratch_begin(0, 0);
         for (U64 i = 0; i < result.count; i++)
         {

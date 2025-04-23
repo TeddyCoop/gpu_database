@@ -1,4 +1,30 @@
 internal IR_Node*
+ir_node_make(Arena *arena, IR_NodeType type, String8 value)
+{
+  IR_Node *node = push_array(arena, IR_Node, 1);
+  node->type = type;
+  node->value = value;
+  return node;
+}
+
+internal void
+ir_node_add_child(IR_Node *parent, IR_Node *child)
+{
+  child->parent = parent;
+  
+  if (parent->last)
+  {
+    parent->last->next = child;
+    child->prev = parent->last;
+    parent->last = child;
+  }
+  else
+  {
+    parent->first = parent->last = child;
+  }
+}
+
+internal IR_Node*
 ir_generate_recursive(Arena* arena, SQL_Node* sql_node)
 {
   if (!sql_node) return NULL;
@@ -176,6 +202,23 @@ ir_create_active_column_list(Arena* arena, IR_Node* parent_node, String8List* us
   }
 }
 
+internal void
+ir_expand_star_to_columns(Arena *arena, GDB_Database *db, IR_Node *select_node)
+{
+  IR_Node *table_node = ir_node_find_child(select_node, IR_NodeType_Table);
+  IR_Node *column_list = ir_node_find_child(select_node, IR_NodeType_ColumnList);
+  
+  //if (!column_list || column_list->first != NULL) return;
+  
+  GDB_Table *table = gdb_database_find_table(db, table_node->value);
+  
+  for (U64 i = 0; i < table->column_count; i++)
+  {
+    GDB_Column* col = table->columns[i];
+    IR_Node *col_node = ir_node_make(arena, IR_NodeType_Column, col->name);
+    ir_node_add_child(column_list, col_node);
+  }
+}
 
 internal void
 ir_print_node(IR_Node *node, U64 depth)

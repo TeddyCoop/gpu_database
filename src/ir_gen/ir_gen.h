@@ -37,6 +37,7 @@ struct IR_Node
 {
   IR_Node* first;
   IR_Node* last;
+  IR_Node* prev;
   IR_Node* next;
   IR_Node* parent;
   IR_NodeType type;
@@ -65,6 +66,8 @@ struct IR_Query
 internal IR_Query* ir_generate_from_ast(Arena* arena, SQL_Node* ast_root);
 internal IR_Node* ir_convert_expression(Arena* arena, SQL_Node *ast_expr);
 
+internal IR_Node* ir_node_make(Arena* arena, IR_NodeType, String8 value);
+internal void ir_node_add_child(IR_Node* parent, IR_Node* child);
 internal IR_NodeType ir_type_from_sql_node_type(SQL_NodeType sql_type);
 internal String8 ir_node_type_to_string(IR_NodeType type);
 internal IR_Node* ir_node_find_child(IR_Node* parent, IR_NodeType type);

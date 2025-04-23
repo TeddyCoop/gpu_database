@@ -80,6 +80,7 @@ global String8 g_sql_symbols[] =
   str8_lit_comp("("),
   str8_lit_comp(")"),
   str8_lit_comp(";"),
+  str8_lit_comp("*"),
 };
 
 internal B32 sql_is_string_keyword(String8 string);

@@ -93,10 +93,10 @@ entry_point(void)
   
   String8 large_dataset_select_query = str8_lit(
                                                 "USE test2;"
-                                                "SELECT col_0_str FROM gen_dataset_1_8gb "
-                                                //"SELECT col_1_int FROM gen_dataset_1_8gb "
-                                                //"WHERE col_0_str == 'R5FsosEspfOgAYWPWkT0pzafrGU5pDr25rB9';"
-                                                "WHERE col_1_int == 606126;"
+                                                //"SELECT * FROM gen_dataset_1_8gb "
+                                                "SELECT col_1_int FROM gen_dataset_1_8gb "
+                                                "WHERE col_0_str == 'R5FsosEspfOgAYWPWkT0pzafrGU5pDr25rB9';"
+                                                //"WHERE col_1_int == 606126;"
                                                 );
   
   //app_execute_query(complex_sql_query);

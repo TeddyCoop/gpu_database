@@ -389,7 +389,7 @@ sql_parse_select_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 
   {
     SQL_Token *token = &(*tokens)[*token_index];
     
-    if (token->type == SQL_TokenType_Identifier) 
+    if (token->type == SQL_TokenType_Identifier)
     {
       SQL_Node *column_node = push_array(arena, SQL_Node, 1);
       column_node->type = SQL_NodeType_Column;
@@ -409,7 +409,19 @@ sql_parse_select_clause(Arena* arena, SQL_Token **tokens, U64 *token_index, U64 
       {
         break;
       }
-    } 
+    }
+    else if (token->type == SQL_TokenType_Symbol)
+    {
+      SQL_Node *column_node = push_array(arena, SQL_Node, 1);
+      column_node->type = SQL_NodeType_Column;
+      column_node->value = token->value;
+      column_node->parent = column_list;
+      
+      DLLPushBack(first, last, column_node);
+      
+      (*token_index)++;
+      break;
+    }
     else 
     {
       log_error("expected column name in 'select' clause, but found '%.*s'.",

@@ -1494,7 +1494,7 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     
     U64 variable_reserved = 0;
     os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved); 
-    
+    ProfEnd();
     
     U64 start_offset = 0;
     U64 end_offset = 0;
@@ -1502,8 +1502,6 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     //U64 offset_position_end = sizeof(U64) + variable_reserved + (row_range.max * sizeof(U64));
     U64 offset_position_start = variable_reserved + (row_range.min * sizeof(U64));
     U64 offset_position_end = variable_reserved + (row_range.max * sizeof(U64));
-    
-    //log_info("off start %llu | off end %llu", offset_position_start, offset_position_end);
     
     if (row_range.min == 0)
     {
@@ -1514,6 +1512,7 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
       os_file_read(file, r1u64(offset_position_start - sizeof(U64), offset_position_start), &start_offset);
     }
     
+    /*
     if (row_range.max == column->row_count)
     {
       end_offset = column->variable_capacity;
@@ -1521,21 +1520,22 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     }
     else
     {
-      os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset);
-    }
+      */
+    os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset);
+    //}
     
+    ProfBegin("read string data");
     U64 size = end_offset - start_offset;
     result.data = push_array(arena, U8, size);
     if (os_file_read(file, r1u64(start_offset + sizeof(U64), start_offset + size + sizeof(U64)), result.data) != size)
     {
       log_error("Failed to read string data for rows [%llu - %llu]", row_range.min, row_range.max);
-      //os_file_close(file);
-      //result.data = NULL;
-      //result.size = 0;
-      //return result;
     }
+    ProfEnd();
     
     result.offsets = push_array(arena, U64, row_count);
+    /*
+    ProfBegin("read start offset");
     if (row_range.min == 0)
     {
       result.offsets[0] = 0;
@@ -1546,18 +1546,41 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
       os_file_read(file, r1u64(offset_position_start - sizeof(U64), offset_position_start), &prev_offset);
       result.offsets[0] = 0;
     }
+    ProfEnd();
+    */
     
-    for (U64 i = 1; i < row_count; i++)
+    /*
+    ProfBegin("read string offsets");
+    U64 offset_array_size = row_count * sizeof(U64);
+    U64 *offset_array = push_array(arena, U64, row_count);
+    os_file_read(file, r1u64(offset_position_start, offset_position_start + offset_array_size), offset_array);
+    
+    for (U64 i = 0; i < row_count; i++)
     {
-      U64 current_offset = 0;
-      os_file_read(file, r1u64(offset_position_start + (i * sizeof(U64)), offset_position_start + ((i + 1) * sizeof(U64))), &current_offset);
-      result.offsets[i] = current_offset - start_offset;
+      result.offsets[i] = offset_array[i] - start_offset;
     }
+    ProfEnd();
+    */
+    result.offsets = push_array(arena, U64, row_count);
+    ProfBegin("read string offsets");
+    {
+      U64 *raw_offsets = push_array(arena, U64, row_count);
+      os_file_read(file, r1u64(offset_position_start, offset_position_start + row_count * sizeof(U64)), raw_offsets);
+      
+      U64 base_offset = (row_range.min == 0) ? 0 : start_offset;
+      for (U64 i = 0; i < row_count; i++)
+      {
+        result.offsets[i] = raw_offsets[i] - base_offset;
+      }
+    }
+    ProfEnd();
     
     if (os_handle_match(os_handle_zero(), column->file))
     {
       os_file_close(file);
     }
+    
+    
     result.size = size;
     result.row_count = row_count;
   }
