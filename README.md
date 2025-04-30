@@ -38,7 +38,6 @@ Within the terminal, nagivate to the root directory of the codebase, then run 'b
 If no errors are present, a folder named 'build' should be created in the root folder. There you will find a 'gdb.exe'
  
 ## Roadmap
-- Pre-Compiled GPU kernels
 - More GPU APIs (CUDA/Vulkan)
 - Mutli-GPU support
 - Complete SQL parser (joins, order by, etc)

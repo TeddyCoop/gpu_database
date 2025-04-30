@@ -2,3 +2,5 @@
 /build
 src\third_party\CL\OpenCL.lib
 benchmark_info.txt
+/queries
+/datasets

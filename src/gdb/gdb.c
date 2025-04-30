@@ -568,7 +568,8 @@ THREAD_POOL_TASK_FUNC(gdb_csv_process_chunk)
   
   void* mapped_base = os_file_map_view_open(ctx->map, OS_AccessFlag_Read, ctx->range);
   U8* str_data = (U8*)mapped_base + ctx->offset_within_view;
-  String8 data = str8(str_data, dim_1u64(ctx->range) - ctx->offset_within_view);
+  //String8 data = str8(str_data, dim_1u64(ctx->range) - ctx->offset_within_view);
+  String8 data = str8(str_data, ctx->view_size);
   
   String8List rows = str8_split_by_string_chars(arena, data, str8_lit("\n"), 0);
   if (rows.node_count == 0)
@@ -591,23 +592,38 @@ THREAD_POOL_TASK_FUNC(gdb_csv_process_chunk)
       {
         if (column->type == GDB_ColumnType_String8)
         {
-          String8 empty_str = {0};
+          String8 empty_str = {0}; // Empty String8 value
+          String8* str = push_array(ctx->arena, String8, 1);
+          *str = empty_str;
+          ctx->columns[col_index].values[ctx->columns[col_index].count++] = str;
         }
         else if (column->type == GDB_ColumnType_F64)
         {
-          F64 empty_f64 = 0.0f;
+          F64 empty_f64 = 0.0f; // Empty F64 value
+          F64* data = push_array(ctx->arena, F64, 1);
+          *data = empty_f64;
+          ctx->columns[col_index].values[ctx->columns[col_index].count++] = data;
         }
         else if (column->type == GDB_ColumnType_U64)
         {
-          U64 empty_u64 = 0;
+          U64 empty_u64 = 0; // Empty U64 value
+          U64* data = push_array(ctx->arena, U64, 1);
+          *data = empty_u64;
+          ctx->columns[col_index].values[ctx->columns[col_index].count++] = data;
         }
         else if (column->type == GDB_ColumnType_F32)
         {
-          F32 empty_f32 = 0.0f;
+          F32 empty_f32 = 0.0f; // Empty F32 value
+          F32* data = push_array(ctx->arena, F32, 1);
+          *data = empty_f32;
+          ctx->columns[col_index].values[ctx->columns[col_index].count++] = data;
         }
         else if (column->type == GDB_ColumnType_U32)
         {
-          U32 empty_u64 = 0;
+          U32 empty_u32 = 0; // Empty U32 value
+          U32* data = push_array(ctx->arena, U32, 1);
+          *data = empty_u32;
+          ctx->columns[col_index].values[ctx->columns[col_index].count++] = data;
         }
       }
       else
@@ -639,8 +655,8 @@ THREAD_POOL_TASK_FUNC(gdb_csv_process_chunk)
         else if (column->type == GDB_ColumnType_U32)
         {
           U32* data = push_array(ctx->arena, U32, 1);
-          //*data = (U32)u64_from_str8(val->string, 10);
-          *data = (U32)u32_from_u64_saturate(u64_from_str8(val->string, 10));
+          *data = (U32)u64_from_str8(val->string, 10);
+          //*data = (U32)u32_from_u64_saturate(u64_from_str8(val->string, 10));
           ctx->columns[col_index].values[ctx->columns[col_index].count++] = data;
         }
       }
@@ -756,13 +772,17 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
   
   U64 total_chunks = AlignUpPow2(props.size, GDB_CSV_CHUNK_SIZE) / GDB_CSV_CHUNK_SIZE;
   log_info("total chunks %llu", total_chunks);
-  Arena* scratch_arena = arena_alloc(.reserve_size=MB(256), .commit_size=MB(16));
+  
+  Arena* scratch_arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
+  
   for (U64 chunk_offset = 0; chunk_offset < total_chunks; chunk_offset += GDB_CSV_THREAD_COUNT)
   {
     U64 start_time = os_now_microseconds();
     TP_Arena* worker_arenas = tp_arena_alloc(thread_pool);
     U64 chunk_count = Min(GDB_CSV_THREAD_COUNT, total_chunks - chunk_offset);
     log_info("starting chunks %llu-%llu", chunk_offset, chunk_offset + chunk_count);
+    
+    U64 max_rows = max_U16;
     
     for (U64 i = 0; i < chunk_count; i++)
     {
@@ -774,7 +794,6 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
       
       U64 scan_view_size = KB(2);
       Rng1U64 scan_range = r1u64(aligned_offset, aligned_offset + offset_within_view + scan_view_size);
-      
       void* scan_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, scan_range);
       U8* scan_bytes = (U8*)scan_ptr + offset_within_view;
       U64 bytes_remaining = props.size - raw_offset;
@@ -791,13 +810,6 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
       }
       os_file_map_view_close(map, scan_ptr, scan_range);
       
-      /*
-      U64 adjusted_raw_offset = raw_offset;
-      if (!(chunk_offset == 0 && i == 0))
-      {
-        adjusted_raw_offset += skip;
-      }
-      */
       U64 adjusted_raw_offset = raw_offset;
       if (chunk_offset == 0 && i == 0)
       {
@@ -807,30 +819,61 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
       {
         adjusted_raw_offset += skip;
       }
+      
       aligned_offset = AlignDownPow2(adjusted_raw_offset, KB(64));
       offset_within_view = adjusted_raw_offset - aligned_offset;
       
-      U64 aligned_size = Min(GDB_CSV_CHUNK_SIZE, props.size - adjusted_raw_offset);
+      U64 adjusted_size = Min(GDB_CSV_CHUNK_SIZE, props.size - adjusted_raw_offset);
       
-      U64 max_rows = max_U16;
-      GDB_CSV_ThreadColumnData* columns = push_array(scratch_arena, GDB_CSV_ThreadColumnData, column_count);
-      for (U64 i = 0; i < column_count; i++)
+      U64 adjusted_end_offset = adjusted_raw_offset + adjusted_size;
+      U64 end_aligned_offset = AlignDownPow2(adjusted_end_offset, KB(64));
+      U64 offset_within_end_view = adjusted_end_offset - end_aligned_offset;
+      
+      U64 end_scan_view_size = KB(2);
+      Rng1U64 end_scan_range = r1u64(end_aligned_offset, end_aligned_offset + offset_within_end_view + end_scan_view_size);
+      if (end_scan_range.max > props.size)
       {
-        GDB_Column* col = table->columns[i];
-        columns[i].type = col->type;
-        columns[i].values = push_array(scratch_arena, void*, max_rows);
-        columns[i].count = 0;
+        end_scan_range.max = props.size;
+      }
+      void* end_scan_ptr = os_file_map_view_open(map, OS_AccessFlag_Read, end_scan_range);
+      U8* end_scan_bytes = (U8*)end_scan_ptr + offset_within_end_view;
+      U64 scan_pos = 0;
+      while (scan_pos < end_scan_view_size && scan_pos < (props.size - adjusted_end_offset))
+      {
+        if (end_scan_bytes[scan_pos] == '\n')
+        {
+          scan_pos += 1;
+          break;
+        }
+        scan_pos += 1;
+      }
+      
+      os_file_map_view_close(map, end_scan_ptr, end_scan_range);
+      
+      U64 final_size = adjusted_size - scan_pos;
+      //log_info("Chunk %llu: raw_offset: %llu, adjusted_raw_offset: %llu, aligned_offset: %llu, offset_within_view: %llu, final_size: %llu", chunk_offset + i, raw_offset, adjusted_raw_offset, aligned_offset, offset_within_view, final_size);
+      
+      GDB_CSV_ThreadColumnData* columns = push_array(scratch_arena, GDB_CSV_ThreadColumnData, column_count);
+      for (U64 j = 0; j < column_count; j++)
+      {
+        GDB_Column* col = table->columns[j];
+        columns[j].type = col->type;
+        columns[j].values = push_array(scratch_arena, void*, max_rows);
+        columns[j].count = 0;
       }
       
       contexts[i] = (GDB_CSV_ThreadContext)
       {
         .map = map,
-        .range = r1u64(aligned_offset, aligned_offset + aligned_size + offset_within_view),
+        .range = r1u64(aligned_offset, aligned_offset + final_size + offset_within_view),
         .table = table,
         .offset_within_view = offset_within_view,
         .columns = columns,
-        .arena = arena_alloc()
+        .view_size = final_size,
+        .arena = arena_alloc(),
       };
+      
+      //log_info("Context %llu: range start: %llu, range end: %llu, final_size: %llu", i, aligned_offset, aligned_offset + final_size + offset_within_view, final_size);
     }
     
     tp_for_parallel(thread_pool, worker_arenas, chunk_count, gdb_csv_process_chunk, contexts);
@@ -849,7 +892,6 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
           gdb_column_add_data(column, value);
         }
       }
-      
       arena_release(ctx->arena);
     }
     
@@ -859,21 +901,432 @@ gdb_table_import_csv(GDB_Database* database, String8 path)
     
     arena_clear(scratch_arena);
   }
+  
   arena_release(scratch_arena);
   
   tp_release(thread_pool);
   os_file_map_close(map);
   os_file_close(file);
   temp_end(scratch);
-  table->row_count = table->columns[0]->row_count;
+  //table->row_count = table->columns[0]->row_count;
+  U64 lowest_row_count = table->columns[0]->row_count;
   
   for (U64 i = 0; i < table->column_count; i++)
   {
     GDB_Column* column = table->columns[i];
+    if (lowest_row_count >= column->row_count)
+    {
+      lowest_row_count = column->row_count;
+      //log_error("invalid row idx %llu count, first %llu, this %llu", i, temp_row_count, column->row_count);
+    }
     gdb_column_close(column);
   }
+  table->row_count = table->columns[0]->row_count;
   
   ProfEnd();
+  return table;
+}
+#if 0
+internal GDB_Table*
+gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
+{
+  Temp scratch = temp_begin(g_gdb_state->arena);
+  
+  GDB_Table *table = gdb_table_alloc(str8_lit("temp"));
+  table->name = str8_chop_last_dot(str8_skip_last_slash(path));
+  table->parent_database = db;
+  
+  OS_Handle file = os_file_open(OS_AccessFlag_Read, path);
+  if (os_handle_match(file, os_handle_zero()))
+  {
+    log_error("Failed to open CSV file: %.*s", str8_varg(path));
+    return NULL;
+  }
+  
+  U64 file_size = os_properties_from_file(file).size;
+  U64 buffer_size = MB(4);
+  U8 *buffer = push_array(scratch.arena, U8, buffer_size);
+  
+  // First, infer types
+  GDB_ColumnType *types = 0;
+  String8 *column_names = 0;
+  U64 column_count = 0;
+  {
+    U64 file_pos = 0;
+    U64 sample_rows = 0;
+    Arena *parse_arena = arena_alloc(.reserve_size=MB(8), .commit_size=MB(1));
+    
+    String8 leftover = {0};
+    
+    while (sample_rows < 256 && file_pos < file_size)
+    {
+      U64 read_size = Min(buffer_size, file_size - file_pos);
+      os_file_read(file, r1u64(file_pos, file_pos + read_size), buffer);
+      file_pos += read_size;
+      
+      String8 chunk = str8(buffer, read_size);
+      if (leftover.size)
+      {
+        chunk = push_str8_cat(parse_arena, leftover, chunk);
+        leftover = (String8){0};
+      }
+      
+      U64 at = 0;
+      while (at < chunk.size)
+      {
+        U64 line_start = at;
+        while (at < chunk.size && chunk.str[at] != '\n') at++;
+        if (at == chunk.size)
+        {
+          leftover = push_str8_copy(parse_arena, str8(chunk.str + line_start, at - line_start));
+          break;
+        }
+        
+        String8 line = str8(chunk.str + line_start, at - line_start);
+        at++;
+        
+        if (sample_rows == 0)
+        {
+          String8List headers = str8_split_by_string_chars(parse_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes);
+          column_count = headers.node_count;
+          column_names = push_array(scratch.arena, String8, column_count);
+          
+          U64 col_i = 0;
+          for (String8Node *node = headers.first; node; node = node->next, col_i++)
+          {
+            column_names[col_i] = str8_skip_chop_whitespace(node->string);
+          }
+          types = push_array(scratch.arena, GDB_ColumnType, column_count);
+          MemorySet(types, GDB_ColumnType_Invalid, column_count * sizeof(*types));
+        }
+        else
+        {
+          String8List values = str8_split_by_string_chars(parse_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
+          U64 col_i = 0;
+          for (String8Node *node = values.first; node && col_i < column_count; node = node->next, col_i++)
+          {
+            GDB_ColumnType type = gdb_infer_column_type(node->string);
+            types[col_i] = gdb_promote_type(types[col_i], type);
+          }
+        }
+        
+        sample_rows++;
+      }
+    }
+    
+    for (U64 i = 0; i < column_count; i++)
+    {
+      if (types[i] == GDB_ColumnType_Invalid)
+        types[i] = GDB_ColumnType_String8;
+      
+      GDB_ColumnSchema schema = gdb_column_schema_create(column_names[i], types[i]);
+      gdb_table_add_column(table, schema);
+    }
+  }
+  
+  // Now, import all rows
+  {
+    Arena *row_arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
+    U64 file_pos = 0;
+    U8 *buffer = push_array(scratch.arena, U8, buffer_size);
+    
+    String8 leftover = {0};
+    B32 is_first_line = 1;
+    
+    while (file_pos < file_size)
+    {
+      
+      U64 read_size = Min(buffer_size, file_size - file_pos);
+      os_file_read(file, r1u64(file_pos, file_pos + read_size), buffer);
+      file_pos += read_size;
+      
+      String8 chunk = str8(buffer, read_size);
+      if (leftover.size)
+      {
+        chunk = push_str8_cat(row_arena, leftover, chunk);
+        leftover = (String8){0};
+      }
+      
+      U64 at = 0;
+      while (at < chunk.size)
+      {
+        U64 line_start = at;
+        while (at < chunk.size && chunk.str[at] != '\n') at++;
+        if (at == chunk.size)
+        {
+          leftover = push_str8_copy(row_arena, str8(chunk.str + line_start, at - line_start));
+          break;
+        }
+        
+        String8 line = str8(chunk.str + line_start, at - line_start);
+        at++;
+        
+        if (is_first_line)
+        {
+          is_first_line = 0;
+          continue;
+        }
+        
+        table->row_count += 1;
+        String8List values = str8_split_by_string_chars(row_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
+        U64 col_i = 0;
+        for (String8Node *node = values.first; node && col_i < column_count; node = node->next, col_i++)
+        {
+          GDB_Column *column = table->columns[col_i];
+          GDB_ColumnType type = column->type;
+          
+          if (node->string.size == 0)
+          {
+            gdb_column_add_data(column, NULL);
+          }
+          else
+          {
+            switch (column->type)
+            {
+              case GDB_ColumnType_U32:
+              {
+                U32 value = (U32)u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_U64:
+              {
+                U64 value = u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F32:
+              {
+                F32 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F64:
+              {
+                F64 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_String8:
+              default:
+              {
+                gdb_column_add_data(column, &node->string);
+              } break;
+            }
+          }
+        }
+      }
+    }
+  }
+  os_file_close(file);
+  temp_end(scratch);
+  return table;
+}
+#endif
+
+internal GDB_Table*
+gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
+{
+  Temp scratch = temp_begin(g_gdb_state->arena);
+  
+  GDB_Table *table = gdb_table_alloc(str8_lit("temp"));
+  table->name = str8_chop_last_dot(str8_skip_last_slash(path));
+  table->parent_database = db;
+  
+  OS_Handle file = os_file_open(OS_AccessFlag_Read, path);
+  if (os_handle_match(file, os_handle_zero()))
+  {
+    log_error("Failed to open CSV file: %.*s", str8_varg(path));
+    return NULL;
+  }
+  
+  U64 file_size = os_properties_from_file(file).size;
+  U64 buffer_size = MB(4);
+  U8 *buffer = push_array(scratch.arena, U8, buffer_size);
+  
+  // First, infer types
+  GDB_ColumnType *types = 0;
+  String8 *column_names = 0;
+  U64 column_count = 0;
+  {
+    U64 file_pos = 0;
+    U64 sample_rows = 0;
+    Arena *parse_arena = arena_alloc(.reserve_size=MB(16), .commit_size=MB(1));
+    
+    String8 leftover = {0};
+    
+    while (sample_rows < 256 && file_pos < file_size)
+    {
+      U64 read_size = Min(buffer_size, file_size - file_pos);
+      os_file_read(file, r1u64(file_pos, file_pos + read_size), buffer);
+      file_pos += read_size;
+      
+      String8 chunk = str8(buffer, read_size);
+      if (leftover.size)
+      {
+        chunk = push_str8_cat(parse_arena, leftover, chunk);
+        leftover = (String8){0};
+      }
+      
+      U64 at = 0;
+      while (at < chunk.size)
+      {
+        U64 line_start = at;
+        while (at < chunk.size && chunk.str[at] != '\n') at++;
+        if (at == chunk.size)
+        {
+          leftover = push_str8_copy(parse_arena, str8(chunk.str + line_start, at - line_start));
+          break;
+        }
+        
+        String8 line = str8(chunk.str + line_start, at - line_start);
+        at++;
+        if (line.size && line.str[line.size - 1] == '\r')
+        {
+          line.size -= 1;
+        }
+        
+        if (sample_rows == 0)
+        {
+          String8List headers = str8_split_by_string_chars(parse_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes);
+          column_count = headers.node_count;
+          column_names = push_array(scratch.arena, String8, column_count);
+          
+          U64 col_i = 0;
+          for (String8Node *node = headers.first; node; node = node->next, col_i++)
+          {
+            column_names[col_i] = str8_skip_chop_whitespace(node->string);
+          }
+          types = push_array(scratch.arena, GDB_ColumnType, column_count);
+          MemorySet(types, GDB_ColumnType_Invalid, column_count * sizeof(*types));
+        }
+        else
+        {
+          String8List values = str8_split_by_string_chars(parse_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
+          U64 col_i = 0;
+          for (String8Node *node = values.first; node && col_i < column_count; node = node->next, col_i++)
+          {
+            GDB_ColumnType type = gdb_infer_column_type(node->string);
+            types[col_i] = gdb_promote_type(types[col_i], type);
+          }
+        }
+        
+        sample_rows++;
+      }
+    }
+    
+    for (U64 i = 0; i < column_count; i++)
+    {
+      if (types[i] == GDB_ColumnType_Invalid)
+        types[i] = GDB_ColumnType_String8;
+      
+      GDB_ColumnSchema schema = gdb_column_schema_create(column_names[i], types[i]);
+      gdb_table_add_column(table, schema);
+    }
+  }
+  
+  // Now, import all rows
+  {
+    Arena *row_arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
+    U64 file_pos = 0;
+    U8 *buffer = push_array(scratch.arena, U8, buffer_size);
+    
+    String8 leftover = {0};
+    B32 is_first_line = 1;
+    
+    while (file_pos < file_size)
+    {
+      U64 read_size = Min(buffer_size, file_size - file_pos);
+      os_file_read(file, r1u64(file_pos, file_pos + read_size), buffer);
+      file_pos += read_size;
+      
+      String8 chunk = str8(buffer, read_size);
+      if (leftover.size)
+      {
+        chunk = push_str8_cat(row_arena, leftover, chunk);
+        leftover = (String8){0};
+      }
+      
+      U64 at = 0;
+      while (at < chunk.size)
+      {
+        U64 line_start = at;
+        while (at < chunk.size && chunk.str[at] != '\n') at++;
+        if (at == chunk.size)
+        {
+          leftover = push_str8_copy(row_arena, str8(chunk.str + line_start, at - line_start));
+          //leftover = push_str8_copy(scratch.arena, str8(chunk.str + line_start, at - line_start));
+          break;
+        }
+        
+        String8 line = str8(chunk.str + line_start, at - line_start);
+        at++;
+        
+        if (is_first_line)
+        {
+          is_first_line = 0;
+          continue;
+        }
+        
+        table->row_count += 1;
+        String8List values = str8_split_by_string_chars(row_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
+        if (table->row_count % 1000000 == 0)
+        {
+          log_info("processing row %llu", table->row_count);
+        }
+        U64 col_i = 0;
+        for (String8Node *node = values.first; node && col_i < column_count; node = node->next, col_i++)
+        {
+          GDB_Column *column = table->columns[col_i];
+          GDB_ColumnType type = column->type;
+          
+          if (node->string.size == 0)
+          {
+            gdb_column_add_data(column, NULL);
+          }
+          else
+          {
+            switch (column->type)
+            {
+              case GDB_ColumnType_U32:
+              {
+                U32 value = (U32)u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_U64:
+              {
+                U64 value = u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F32:
+              {
+                F32 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F64:
+              {
+                F64 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_String8:
+              default:
+              {
+                gdb_column_add_data(column, &node->string);
+              } break;
+            }
+          }
+        }
+        
+        arena_clear(row_arena);
+      }
+    }
+  }
+  os_file_close(file);
+  temp_end(scratch);
   return table;
 }
 
@@ -972,12 +1425,14 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       U64 old_offset_pos = sizeof(U64) + var_reserved;
       U64 new_offset_pos = sizeof(U64) + new_reserved;
       
-      Temp scratch = scratch_begin(0, 0);
+      //Temp scratch = scratch_buegin(0, 0);
+      Temp scratch = temp_begin(g_gdb_state->arena);
       void *buffer = push_array(scratch.arena, U8, total_offsets_size);
       
       os_file_read(file, r1u64(old_offset_pos, old_offset_pos + total_offsets_size), buffer);
       os_file_write(file, r1u64(new_offset_pos, new_offset_pos + total_offsets_size), buffer);
-      scratch_end(scratch);
+      //scratch_end(scratch);
+      temp_end(scratch);
       
       os_file_write(file, r1u64(0, sizeof(U64)), &new_reserved);
       var_reserved = new_reserved;
@@ -1493,8 +1948,7 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     }
     
     U64 variable_reserved = 0;
-    os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved); 
-    ProfEnd();
+    os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved);
     
     U64 start_offset = 0;
     U64 end_offset = 0;
@@ -1523,6 +1977,15 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
       */
     os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset);
     //}
+    
+    if (end_offset == 0)
+    {
+      log_error("failed to read end offset");
+      end_offset = os_properties_from_file(file).size - sizeof(U64);
+      //log_error("subtraction by zero");
+      //return result;
+    }
+    
     
     ProfBegin("read string data");
     U64 size = end_offset - start_offset;
@@ -1696,7 +2159,7 @@ gdb_column_type_from_string(String8 str)
     return GDB_ColumnType_String8;
   }
   
-  log_error("failed to find matching GDB_ColumnType for '%.*s'", (int)str.size, str.str);
+  log_error("failed to find matching GDB_ColumnType for '%.*s'", str8_varg(str));
   return GDB_ColumnType_U64;
 }
 

@@ -4,7 +4,7 @@ app_execute_query(String8 sql_query)
 {
   ProfBeginFunction();
   
-  Arena* arena = arena_alloc();
+  Arena* arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
   
   SQL_TokenizeResult tokenize_result = sql_tokenize_from_text(arena, sql_query);
   SQL_Node* sql_root = sql_parse(arena, tokenize_result.tokens, tokenize_result.count);
@@ -184,7 +184,9 @@ app_execute_query(String8 sql_query)
           Temp scratch = scratch_begin(0, 0);
           String8 filepath = push_str8f(scratch.arena, "data/%.*s", 
                                         str8_varg(import_file_node->value));
-          GDB_Table* table = gdb_table_import_csv(database, filepath);
+          //GDB_Table* table = gdb_table_import_csv(database, filepath);
+          GDB_Table* table = gdb_table_import_csv_streaming(database, filepath);
+          //table->name = push_str8_copy(table->arena, table_node->value);
           table->name = push_str8_copy(table->arena, table->name);
           scratch_end(scratch);
           gdb_database_add_table(database, table);
@@ -207,7 +209,7 @@ app_execute_query(String8 sql_query)
         GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(ir_execution_node, IR_NodeType_Table)->value);
         
         log_info("result count %llu", result.count);
-        
+#if PRINT_SELECT_OUTPUT
         Temp scratch = scratch_begin(0, 0);
         for (U64 i = 0; i < result.count; i++)
         {
@@ -244,7 +246,7 @@ app_execute_query(String8 sql_query)
           printf("\n");
           scratch_end(scratch);
         }
-        
+#endif
         ProfEnd();
       } break;
       

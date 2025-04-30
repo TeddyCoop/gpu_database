@@ -3,10 +3,11 @@
 #ifndef GPU_H
 #define GPU_H
 
+#if !defined(GPU_MAX_BUFFER_SIZE)
 #define GPU_MAX_BUFFER_SIZE MB(64)
-//#define GPU_MAX_BUFFER_SIZE MB(128)
-//#define GPU_MAX_BUFFER_SIZE KB(16)
-//#define GPU_MAX_BUFFER_SIZE KB(64)
+#endif
+//#define GPU_MAX_BUFFER_SIZE MB(512)
+//#define GPU_MAX_BUFFER_SIZE GB(1)
 
 typedef enum GPU_BufferFlags
 {

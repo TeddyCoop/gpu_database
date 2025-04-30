@@ -2,6 +2,10 @@
 #define BUILD_CONSOLE_INTERFACE 1
 #define PROFILE_CUSTOM 1
 
+#define FORCE_KERNEL_COMPILATION 0
+#define PRINT_SELECT_OUTPUT 0
+#define GPU_MAX_BUFFER_SIZE MB(512)
+
 #include "base/base_inc.h"
 #include "os/os_inc.h"
 #include "gdb/gdb_inc.h"
@@ -9,8 +13,6 @@
 #include "gpu/gpu_inc.h"
 #include "application.h"
 #include "thread_pool/thread_pool.h"
-
-internal void test_print_database(GDB_Database *database);
 
 #include "base/base_inc.c"
 #include "os/os_inc.c"
@@ -45,11 +47,12 @@ entry_point(void)
   
   log_info("total gpu memory: %llu (MB)", gpu_device_total_memory() >> 20);
   
+  /*
   String8 use_retail_query = str8_lit(
                                       "USE retail;"
                                       "SELECT name, email \n"
                                       "FROM customers \n"
-                                      //"WHERE age >= 25 AND (balance > 500 OR name CONTAINS 'ob') \n"
+                                      //"WHERE age >= 25 AND (balance > 500 OR name CONTAINS 'ob' OR name == 'Bob') \n"
                                       "WHERE name == 'Theodore';\n"
                                       //"WHERE name contains 'Da';\n"
                                       //"WHERE name contains 'ice';\n"
@@ -74,63 +77,69 @@ entry_point(void)
                                                 "(3, 'Charlie', 40, 'charliecoca@example.com', 1500.00),\n"
                                                 "(4, 'Theodore', 65, 'dannybrown@example.com', 190000.00);\n"
                                                 );
+  */
   
-  String8 test1_create_query = str8_lit(
-                                        "CREATE DATABASE test;"
-                                        "IMPORT INTO test1 FROM 'test1.csv';"
+  String8 medium_create_query = str8_lit(
+                                         "CREATE DATABASE medium;"
+                                         "IMPORT INTO medium FROM 'medium_25col.csv';"
+                                         );
+  
+  String8 medium_select_query = str8_lit(
+                                         "USE medium;"
+                                         "SELECT * FROM medium_25col "
+                                         "WHERE (col_12 >= 911293 OR col_21 >= 447936 OR col_22 >= 2963.61 AND col_22 <= 3426.63 OR col_14 == 'bGmaA');"
+                                         );
+  
+  String8 large_create_query = str8_lit(
+                                        "CREATE DATABASE large;"
+                                        "IMPORT INTO large FROM 'large_50col.csv';"
                                         );
   
-  String8 test1_select_query = str8_lit(
-                                        "USE test;"
-                                        "SELECT col_0_str FROM test1 "
-                                        "WHERE col_1_int == 235483;"
-                                        );
   
-  String8 large_dataset_create_query = str8_lit(
-                                                "CREATE DATABASE test2;"
-                                                "IMPORT INTO gen_dataset_1_8gb FROM 'gen_dataset_1_8gb.csv';"
+  String8 huge_create_query = str8_lit(
+                                       "CREATE DATABASE huge;"
+                                       "IMPORT INTO huge FROM 'huge_100col.csv';"
+                                       );
+  
+  String8 huge_select_query = str8_lit(
+                                       "USE huge;"
+                                       "SELECT * FROM huge_100col "
+                                       "WHERE (col_51 == 'B9COt' OR col_82 >= 879.49 AND col_82 <= 1129.8) AND (col_23 >= 581547 OR col_42 == 'W8Xug' OR col_86 >= 573325)"
+                                       );
+  
+  String8 massive_create_query = str8_lit(
+                                          "CREATE DATABASE massive;"
+                                          "IMPORT INTO massive FROM 'massive_2col.csv';"
+                                          );
+  
+  String8 massive_select_query = str8_lit(
+                                          "USE massive;"
+                                          "SELECT * FROM massive_2col "
+                                          "WHERE (col_1 >= 4070.46 AND col_1 <= 4371.73 OR col_0 >= 197555) AND (col_0 >= 846962 OR col_1 >= 1012.13 AND col_1 <= 1036.33);"
+                                          );
+  
+  String8 triple_string_create_query = str8_lit(
+                                                "CREATE DATABASE triple_string;"
+                                                "IMPORT INTO triple_string_3col FROM 'triple_string_3col.csv';"
                                                 );
   
-  String8 large_dataset_select_query = str8_lit(
-                                                "USE test2;"
-                                                //"SELECT * FROM gen_dataset_1_8gb "
-                                                "SELECT col_1_int FROM gen_dataset_1_8gb "
-                                                "WHERE col_0_str == 'R5FsosEspfOgAYWPWkT0pzafrGU5pDr25rB9';"
-                                                //"WHERE col_1_int == 606126;"
+  String8 triple_string_select_query = str8_lit(
+                                                "USE triple_string;"
+                                                "SELECT * FROM triple_string_3col "
+                                                "WHERE (col_0 == 'LZ2KU' OR col_2 == 'iZaBC');"
                                                 );
   
-  //app_execute_query(complex_sql_query);
-  //app_execute_query(create_test_database_query);
-  //app_execute_query(use_retail_query);
-  //app_execute_query(large_dataset_create_query);
-  app_execute_query(large_dataset_select_query);
-  //app_execute_query(test1_create_query);
-  //app_execute_query(test1_select_query);
-  //app_execute_query(pets_query);
-  //app_execute_query(real_estate_query);
-  
-  log_release();
+  //app_execute_query(medium_create_query);
+  //app_execute_query(medium_select_query);
+  //app_execute_query(large_create_query);
+  //app_execute_query(massive_create_query);
+  //app_execute_query(massive_select_query);
+  //app_execute_query(huge_create_query);
+  //app_execute_query(huge_select_query);
+  //app_execute_query(triple_string_create_query);
+  app_execute_query(triple_string_select_query);
   
   ProfEnd();
   ProfEndCapture();
+  log_release();
 }
-
-/*
-
-todo:
-[x]- when a file is too large. read piece by piece
- [x]-- this might mean memory mapped files
-[x]--- if added, it might be possible to keep active memory usage under 1 GB, maybe in the MB region
-
-[x]- a query returned from the gpu should be a sparse array, only holding the indices of valid elements
-[x]-- if a column count is greater than a threshold, split the query up as to not run out of GPU memory
---- also means keeping track of the max gpu memory and the memory used by the database 
-
-- write a function that parses and adds data to a column
-
-- maybe work on other gpu api layers (CUDA, Vulkan)
-
-- more asserts, logging, better profiling
-- comments
-- general optimization, but cant optimize until you profile
-*/

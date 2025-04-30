@@ -50,9 +50,9 @@ offsets - U64*
 #define GDB_DISK_BACKED_THRESHOLD_SIZE KB(16)
 //#define GDB_DISK_BACKED_THRESHOLD_SIZE 256
 
-//#define GDB_CSV_CHUNK_SIZE KB(512*2)
-#define GDB_CSV_CHUNK_SIZE MB(1)
-#define GDB_CSV_THREAD_COUNT 6
+#define GDB_CSV_CHUNK_SIZE KB(512)
+//#define GDB_CSV_CHUNK_SIZE MB(4)
+#define GDB_CSV_THREAD_COUNT 4
 
 typedef U32 GDB_ColumnType;
 enum
@@ -152,6 +152,8 @@ struct GDB_CSV_ThreadContext
   U64 offset_within_view;
   GDB_CSV_ThreadColumnData* columns;
   Arena* arena;
+  U64 starting_row_index;
+  U64 view_size;
 };
 
 

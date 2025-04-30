@@ -14,37 +14,6 @@ gpu_flags_to_opencl_flags(GPU_BufferFlags flags)
   return result;
 }
 
-internal cl_program
-gpu_opencl_build_program(String8 source)
-{
-  ProfBeginFunction();
-  
-  cl_program program = { 0 };
-  cl_int ret = 0;
-  
-  ProfBegin("clCreateProgramWithSource");
-  program = clCreateProgramWithSource(g_opencl_state->context, 1, &source.str, NULL, &ret);
-  if (ret != CL_SUCCESS)
-  {
-    log_error("Failed to create OpenCL program.\n");
-  }
-  ProfEnd();
-  
-  ProfBegin("clBuildProgram");
-  ret = clBuildProgram(program, 1, &g_opencl_state->device, NULL, NULL, NULL);
-  if (ret != CL_SUCCESS)
-  {
-    log_error("failed to build OpenCL program.\n");
-    char log[2048];
-    clGetProgramBuildInfo(program, g_opencl_state->device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
-    log_error("build log:\n%s\n", log);
-  }
-  ProfEnd();
-  
-  ProfEnd();
-  return program;
-}
-
 internal void
 gpu_init(void)
 {
@@ -263,6 +232,7 @@ gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
   cl_context context = g_opencl_state->context;
   
   String8 cache_path = gpu_get_kernel_cache_path(scratch.arena, source, kernel_name);
+#if !FORCE_KERNEL_COMPILATION
   if (os_file_path_exists(cache_path))
   {
     OS_Handle file = os_file_open(OS_AccessFlag_Read, cache_path);
@@ -283,6 +253,7 @@ gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
           {
             log_info("sucessfully build program '%.*s' from cached binary", str8_varg(kernel_name));
             scratch_end(scratch);
+            ProfEnd();
             return program;
           }
           else
@@ -296,6 +267,7 @@ gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
     }
     os_file_close(file);
   }
+#endif
   
   //- tec: if loading failed, fall back to building from source
   program = clCreateProgramWithSource(context, 1, &source.str, NULL, &ret);
@@ -379,7 +351,11 @@ gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size
   size_t global_size[] = { global_work_size };
   size_t local_size[] = { local_work_size };
   
+  U64 gpu_kernel_start = os_now_microseconds();
   err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
+  U64 gpu_kernel_end = os_now_microseconds();
+  log_debug("kernel execution time %llu microseconds", gpu_kernel_end - gpu_kernel_start);
+  
   if (err != CL_SUCCESS)
   {
     log_error("failed to execute OpenCL kernel (Code: %d)", err);

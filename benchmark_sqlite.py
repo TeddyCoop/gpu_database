@@ -1,73 +1,56 @@
 import sqlite3
-import csv
+import pandas as pd
 import time
-import sys
+import argparse
 import os
 
-def import_csv_to_sqlite(db_path, table_name, csv_path):
-    import_start = time.time()
-    
-    conn = sqlite3.connect(db_path)
+def benchmark_sql_query(csv_path, sql_query):
+    if not os.path.exists(csv_path):
+        print(f"Error: File '{csv_path}' does not exist.")
+        return
+
+    # Load CSV into DataFrame (not timed)
+    df = pd.read_csv(csv_path)
+
+    # Create SQLite in-memory DB and load table (not timed)
+    conn = sqlite3.connect(":memory:")
+    table_name = os.path.splitext(os.path.basename(csv_path))[0]
+    df.to_sql(table_name, conn, index=False, if_exists="replace")
+
     cursor = conn.cursor()
 
-    with open(csv_path, newline='') as csvfile:
-        reader = csv.reader(csvfile)
-        headers = next(reader)
-        columns = ', '.join([f'"{h}" TEXT' for h in headers])
-        cursor.execute(f'CREATE TABLE IF NOT EXISTS {table_name} ({columns})')
-
-        placeholders = ', '.join(['?'] * len(headers))
-        cursor.executemany(
-            f'INSERT INTO {table_name} VALUES ({placeholders})',
-            reader
-        )
-
-    conn.commit()
-    conn.close()
-
-    import_end = time.time()
-    print(f"Import Time: {import_end - import_start:.6f} sec")
-
-def run_benchmark(db_path, sql_query):
-    print(f"Running query on {db_path}...")
-
-    start_time = time.time()
-
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    query_start = time.time()
+    # Time just the query execution (compile + run)
+    start_query = time.perf_counter()
     cursor.execute(sql_query)
-    query_end = time.time()
-    rows = cursor.fetchall()
+    exec_time_ms = (time.perf_counter() - start_query) * 1000
+
+    # Time just fetching the results
+    start_fetch = time.perf_counter()
+    results = cursor.fetchall()
+    fetch_time_ms = (time.perf_counter() - start_fetch) * 1000
+
+    total_time_ms = exec_time_ms + fetch_time_ms
+
+    print(f"=== Query Timing (ms) ===")
+    print(f"CSV File         : {csv_path}")
+    print(f"Table Name       : {table_name}")
+    print(f"Row Count        : {len(df)}")
+    print(f"Column Count     : {len(df.columns)}")
+    print(f"Query Exec Time  : {exec_time_ms:.3f} ms")
+    print(f"Result Fetch Time: {fetch_time_ms:.3f} ms")
+    print(f"Total Query Time : {total_time_ms:.3f} ms")
+    print(f"Result Rows      : {len(results)}")
 
     conn.close()
-
-    end_time = time.time()
-
-    print(f"Total Time: {end_time - start_time:.6f} sec")
-    print(f"Query Time: {query_end - query_start:.6f} sec")
-    print(f"Rows Returned: {len(rows)}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Usage: python benchmark_sqlite.py <csv_path> <table_name> <sql_query>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Time SQL query execution and fetch (ms) against in-memory SQLite from a CSV file.")
+    parser.add_argument("csv", help="Path to CSV file")
+    parser.add_argument("query", help="SQL query to run on the CSV data")
 
-    csv_path = sys.argv[1]
-    table_name = sys.argv[2]
-    sql_query = " ".join(sys.argv[3:])
+    args = parser.parse_args()
+    benchmark_sql_query(args.csv, args.query)
 
-    db_path = "temp_benchmark.db"
-    if os.path.exists(db_path):
-        os.remove(db_path)
-
-    print(f"Importing {csv_path} into SQLite...")
-    import_csv_to_sqlite(db_path, table_name, csv_path)
-
-    run_benchmark(db_path, sql_query)
-
-    os.remove(db_path)
-
-# python benchmark_sqlite.py build/data/test1.csv test1 "SELECT col_0_str FROM test1 WHERE col_1_int == 235483;"
-# python benchmark_sqlite.py build/data/gen_dataset_1_8gb.csv test1 "SELECT col_0_str FROM test1 WHERE col_1_int == 606126;"
+# python benchmark_sqlite.py build/data/massive_2col.csv "SELECT * FROM massive_2col WHERE (col_1 >= 4070.46 AND col_1 <= 4371.73 OR col_0 >= 197555) AND (col_0 >= 846962 OR col_1 >= 1012.13 AND col_1 <= 1036.33);"
+# python benchmark_sqlite.py build/data/huge_100col.csv "SELECT * FROM huge_100col WHERE (col_51 == 'B9COt' OR col_82 >= 879.49 AND col_82 <= 1129.8) AND (col_23 >= 581547 OR col_42 == 'W8Xug' OR col_86 >= 573325)"
+# python benchmark_sqlite.py build/data/triple_string_3col.csv "SELECT * FROM triple_string_3col WHERE (col_0 == 'LZ2KU' OR col_2 == 'iZaBC' OR col_1 CONTAINS 'IMt')"
