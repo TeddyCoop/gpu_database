@@ -4,3 +4,4 @@ src\third_party\CL\OpenCL.lib
 benchmark_info.txt
 /queries
 /datasets
+/deterministic_datasets
