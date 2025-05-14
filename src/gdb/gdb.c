@@ -539,7 +539,7 @@ chunk.size += __s.size; \
       }
       else if (column->type == GDB_ColumnType_String8)
       {
-        //output = gdb_column_get_string(scratch.arena, column, row);
+        output = gdb_column_get_string(scratch.arena, column, row);
       }
       
       if (output.size && output.str)
@@ -691,7 +691,6 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
   U64 buffer_size = MB(4);
   U8 *buffer = push_array(scratch.arena, U8, buffer_size);
   
-  // First, infer types
   GDB_ColumnType *types = 0;
   String8 *column_names = 0;
   U64 column_count = 0;
@@ -773,7 +772,6 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
     }
   }
   
-  // Now, import all rows
   {
     Arena *row_arena = arena_alloc(.reserve_size=GB(1), .commit_size=MB(32));
     U64 file_pos = 0;
@@ -864,10 +862,6 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
               case GDB_ColumnType_String8:
               default:
               {
-                if (table->row_count == 466)
-                {
-                  printf("hi");
-                }
                 gdb_column_add_data(column, &node->string);
               } break;
             }
@@ -877,6 +871,71 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
         arena_clear(row_arena);
       }
     }
+    
+    if (leftover.size)
+    {
+      String8 line = leftover;
+      leftover = (String8){0};
+      
+      if (!is_first_line)
+      {
+        table->row_count += 1;
+        String8List values = str8_split_by_string_chars(row_arena, line, str8_lit(","), StringSplitFlag_RespectQuotes | StringSplitFlag_KeepEmpties);
+        if (table->row_count % 1000000 == 0)
+        {
+          log_info("processing row %llu", table->row_count);
+        }
+        U64 col_i = 0;
+        for (String8Node *node = values.first; node && col_i < column_count; node = node->next, col_i++)
+        {
+          GDB_Column *column = table->columns[col_i];
+          GDB_ColumnType type = column->type;
+          
+          if (node->string.size == 0)
+          {
+            gdb_column_add_data(column, NULL);
+          }
+          else
+          {
+            node->string = str8_skip_chop_whitespace(node->string);
+            switch (type)
+            {
+              case GDB_ColumnType_U32:
+              {
+                U32 value = (U32)u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_U64:
+              {
+                U64 value = u64_from_str8(node->string, 10);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F32:
+              {
+                F32 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_F64:
+              {
+                F64 value = f64_from_str8(node->string);
+                gdb_column_add_data(column, &value);
+              } break;
+              
+              case GDB_ColumnType_String8:
+              default:
+              {
+                gdb_column_add_data(column, &node->string);
+              } break;
+            }
+          }
+        }
+      }
+      arena_clear(row_arena);
+    }
+    
   }
   os_file_close(file);
   temp_end(scratch);
@@ -983,8 +1042,6 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       os_file_read(file, r1u64(old_offset_pos, old_offset_pos + total_offsets_size), buffer);
       os_file_write(file, r1u64(new_offset_pos, new_offset_pos + total_offsets_size), buffer);
       
-      temp_end(scratch);
-      
       os_file_write(file, r1u64(0, sizeof(U64)), &new_reserved);
       var_reserved = new_reserved;
       offset_array_offset = sizeof(U64) + var_reserved;
@@ -992,24 +1049,24 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       U64 new_size = offset_array_offset + total_offsets_size;
       os_file_resize(file, new_size);
       
+      U64 old_offset_array_size = total_offsets_size;
+      void *zero_buf = push_array(scratch.arena, U8, old_offset_array_size);
+      MemoryZero(zero_buf, old_offset_array_size);
+      os_file_write(file, r1u64(old_offset_pos, old_offset_pos + old_offset_array_size), zero_buf);
+      
+      temp_end(scratch);
+      
       ProfEnd();
     }
     U64 string_offset = column->variable_capacity;
     os_file_write(file, r1u64(sizeof(U64) + string_offset, sizeof(U64) + string_offset + str->size), str->str);
     
-    U64 new_end_offset = str->size;
-    if (offset_count > 0)
-    {
-      U64 last_offset_pos = offset_array_offset + (offset_count - 1) * sizeof(U64);
-      U64 last_offset = 0;
-      os_file_read(file, r1u64(last_offset_pos, last_offset_pos + sizeof(U64)), &last_offset);
-      new_end_offset = last_offset + str->size;
-    }
-    
+    U64 new_end_offset = string_offset + str->size;
     os_file_write(file,
-                  r1u64(offset_array_offset + offset_count * sizeof(U64),
-                        offset_array_offset + (offset_count + 1) * sizeof(U64)),
+                  r1u64(offset_array_offset + (offset_count + 1) * sizeof(U64),
+                        offset_array_offset + (offset_count + 2) * sizeof(U64)),
                   &new_end_offset);
+    
     column->variable_capacity += str->size;
   }
   else
@@ -1213,77 +1270,6 @@ gdb_column_get_data(GDB_Column* column, U64 index)
   }
 }
 
-/*
-internal String8
-gdb_column_get_string(Arena* arena, GDB_Column* column, U64 index)
-{
-  //ProfBeginFunction();
-  
-  String8 result = { 0 };
-  
-  if (index >= column->row_count)
-  {
-    return result;
-  }
-  
-  if (column->type == GDB_ColumnType_String8)
-  {
-    if (column->is_disk_backed)
-    {
-      OS_Handle file = column->file;
-      if (os_handle_match(os_handle_zero(), file))
-      {
-        file = os_file_open(OS_AccessFlag_Read, column->disk_path);
-      }
-      
-      U64 variable_reserved = 0;
-      os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved); 
-      
-      U64 offset_base = sizeof(U64) + variable_reserved;
-      U64 offset_position = offset_base + (index * sizeof(U64));
-      
-      U64 start_offset = 0, end_offset = 0;
-      
-      if (index > 0)
-      {
-        os_file_read(file, r1u64(offset_position - sizeof(U64), offset_position), &start_offset);
-      }
-      os_file_read(file, r1u64(offset_position, offset_position + sizeof(U64)), &end_offset);
-      
-      U64 size = end_offset - start_offset;
-      if (end_offset < start_offset)
-      {
-        result = str8_lit("invalid string");
-        return result;
-      }
-      result.str = arena_push(arena, size, 8);
-      
-      U64 data_start = sizeof(U64) + start_offset;
-      os_file_read(file, r1u64(data_start, data_start + size), result.str);
-      result.size = size;
-      
-      if (os_handle_match(os_handle_zero(), column->file))
-      {
-        os_file_close(file);
-      }
-    }
-    else
-    {
-      U64 start = (index > 0) ? column->offsets[index - 1] : 0;
-      U64 end = column->offsets[index];
-      
-      if (start < end && end <= column->variable_capacity)
-      {
-        result.str = column->data + start;
-        result.size = end - start;
-      }
-    }
-  }
-  
-  //ProfEnd();
-  return result;
-}
-*/
 internal String8
 gdb_column_get_string(Arena *arena, GDB_Column *column, U64 index)
 {
@@ -1321,7 +1307,7 @@ gdb_column_get_string(Arena *arena, GDB_Column *column, U64 index)
     {
       U64 size = end - start;
       result.str = arena_push(arena, size, 8);
-      U64 data_pos = start + sizeof(U64);
+      U64 data_pos = sizeof(U64) + start;
       os_file_read(file, r1u64(data_pos, data_pos + size), result.str);
       result.size = size;
     }
@@ -1346,6 +1332,8 @@ gdb_column_get_string(Arena *arena, GDB_Column *column, U64 index)
   return result;
 }
 
+// tec: TODO i think this doesnt accurately  reflect the column sizes
+// because for strings the file size may be different than the actual size
 internal U64
 gdb_column_get_total_size(GDB_Column* column)
 {
@@ -1381,147 +1369,57 @@ gdb_column_get_data_range(Arena* arena, GDB_Column* column, Rng1U64 row_range, U
   U64 row_count = row_range.max + 1 - row_range.min;
   U64 size = row_count * column->size;
   
-  // tec: this is probably not needed, remove
   if (column->type == GDB_ColumnType_String8)
   {
-    if (column->is_disk_backed)
+    log_error("gdb_column_get_data_range was called, but column type is string. did you mean  gdb_column_get_string_chunk?");
+    return NULL;
+  }
+  
+  if (column->is_disk_backed)
+  {
+    void* data_ptr = push_array(arena, U8, size);
+    OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+    if (!os_handle_match(os_handle_zero(), file))
     {
-      OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
-      if (os_handle_match(os_handle_zero(), file))
-      {
-        log_error("failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
-        *out_size = 0;
-        ProfEnd();
-        return NULL;
-      }
+      // tec: is the row_range inclusive?? may fix the file reading issue
+      U64 offset_start = row_range.min * column->size;
+      U64 offset_end = (row_range.max + 1) * column->size;
+      U64 read_file_size = os_file_read(file, r1u64(offset_start, offset_end), data_ptr);
+      *out_size = size;
       
-      U64 start_offset = 0;
-      U64 end_offset = 0;
-      U64 offset_position_start = column->variable_capacity + (row_range.min * sizeof(U64));
-      U64 offset_position_end = column->variable_capacity + (row_range.max * sizeof(U64));
-      
-      FileProperties props = os_properties_from_file(file);
-      if (offset_position_end + sizeof(U64) > props.size)
+      if (read_file_size != size)
       {
-        log_error("attempting to read beyond file size: offset=%llu, file_size=%llu", offset_position_end, props.size);
-        os_file_close(file);
-        *out_size = 0;
-        ProfEnd();
-        return NULL;
-      }
-      
-      if (row_range.min == 0)
-      {
-        start_offset = 0;
-      }
-      else
-      {
-        if (os_file_read(file, r1u64(offset_position_start - sizeof(U64), offset_position_start), &start_offset) != sizeof(U64))
-        {
-          log_error("failed to read start offset for row %llu", row_range.min);
-          os_file_close(file);
-          *out_size = 0;
-          ProfEnd();
-          return NULL;
-        }
-      }
-      
-      if (row_range.max == column->row_count)
-      {
-        end_offset = column->variable_capacity;
-      }
-      else
-      {
-        if (os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset) != sizeof(U64))
-        {
-          log_error("failed to read end offset for row %llu", row_range.max);
-          os_file_close(file);
-          *out_size = 0;
-          ProfEnd();
-          return NULL;
-        }
-      }
-      
-      size = end_offset - start_offset;
-      void* data_ptr = push_array(arena, U8, size);
-      if (os_file_read(file, r1u64(start_offset, start_offset + size), data_ptr) != size)
-      {
-        log_error("Failed to read string data for rows [%llu - %llu]", row_range.min, row_range.max);
-        os_file_close(file);
-        *out_size = 0;
-        ProfEnd();
-        return NULL;
+        // tec: when reading the end of a large file. the calculated size may be different than the
+        // read size. i think its something to do with Windows and how its saving the file. but all the data is
+        // there, TODO figure out what is going on
+        //log_error("failed to read data for non-string column: %.*s", str8_varg(column->disk_path));
+        //log_info("calculated size %llu read size %llu", size, read_file_size);
+        //os_file_close(file);
+        *out_size = read_file_size;
+        //return data_ptr;
+        // tec: NOTE this could be caused by the incorrect gdb_column_get_total_size function
       }
       
       os_file_close(file);
-      *out_size = size;
       ProfEnd();
       return data_ptr;
     }
     else
     {
-      U64 start_offset = (row_range.min > 0) ? column->offsets[row_range.min - 1] : 0;
-      U64 end_offset = column->offsets[row_range.max - 1];
-      size = end_offset - start_offset;
-      
-      void* data_ptr = column->data + start_offset;
-      *out_size = size;
+      log_error("failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
+      *out_size = 0;
       ProfEnd();
-      return data_ptr;
+      return NULL;
     }
   }
   else
   {
-    if (column->is_disk_backed)
-    {
-      void* data_ptr = push_array(arena, U8, size);
-      OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
-      if (!os_handle_match(os_handle_zero(), file))
-      {
-        // tec: is the row_range inclusive?? may fix the file reading issue
-        U64 offset_start = row_range.min * column->size;
-        U64 offset_end = (row_range.max + 1) * column->size;
-        U64 read_file_size = os_file_read(file, r1u64(offset_start, offset_end), data_ptr);
-        *out_size = size;
-        
-        //log_info("range min: %llu , max: %llu", row_range.min, row_range.max);
-        if (offset_end > os_properties_from_file(file).size)
-        {
-          //log_error("Requested read past EOF: offset_end = %llu, file_size = %llu", offset_end, os_properties_from_file(file).size);
-        }
-        
-        if (read_file_size != size)
-        {
-          // tec: when reading the end of a large file. the calculated size may be different than the
-          // read size. i think its something to do with Windows and how its saving the file. but all the data is
-          // there, TODO figure out what is going on
-          //log_error("failed to read data for non-string column: %.*s", str8_varg(column->disk_path));
-          //log_info("calculated size %llu read size %llu", size, read_file_size);
-          //os_file_close(file);
-          *out_size = read_file_size;
-          //return data_ptr;
-        }
-        
-        os_file_close(file);
-        ProfEnd();
-        return data_ptr;
-      }
-      else
-      {
-        log_error("failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
-        *out_size = 0;
-        ProfEnd();
-        return NULL;
-      }
-    }
-    else
-    {
-      void* data_ptr = column->data + (row_range.min * column->size);
-      *out_size = size;
-      ProfEnd();
-      return data_ptr;
-    }
+    void* data_ptr = column->data + (row_range.min * column->size);
+    *out_size = size;
+    ProfEnd();
+    return data_ptr;
   }
+  
   ProfEnd();
 }
 
@@ -1569,24 +1467,13 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
       os_file_read(file, r1u64(offset_position_start - sizeof(U64), offset_position_start), &start_offset);
     }
     
-    /*
-    if (row_range.max == column->row_count)
-    {
-      end_offset = column->variable_capacity;
-      os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset);
-    }
-    else
-    {
-      */
     os_file_read(file, r1u64(offset_position_end, offset_position_end + sizeof(U64)), &end_offset);
-    //}
+    
     
     if (end_offset == 0)
     {
       log_error("failed to read end offset");
       end_offset = os_properties_from_file(file).size - sizeof(U64);
-      //log_error("subtraction by zero");
-      //return result;
     }
     
     
@@ -1599,34 +1486,6 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     }
     ProfEnd();
     
-    result.offsets = push_array(arena, U64, row_count);
-    /*
-    ProfBegin("read start offset");
-    if (row_range.min == 0)
-    {
-      result.offsets[0] = 0;
-    }
-    else
-    {
-      U64 prev_offset = 0;
-      os_file_read(file, r1u64(offset_position_start - sizeof(U64), offset_position_start), &prev_offset);
-      result.offsets[0] = 0;
-    }
-    ProfEnd();
-    */
-    
-    /*
-    ProfBegin("read string offsets");
-    U64 offset_array_size = row_count * sizeof(U64);
-    U64 *offset_array = push_array(arena, U64, row_count);
-    os_file_read(file, r1u64(offset_position_start, offset_position_start + offset_array_size), offset_array);
-    
-    for (U64 i = 0; i < row_count; i++)
-    {
-      result.offsets[i] = offset_array[i] - start_offset;
-    }
-    ProfEnd();
-    */
     result.offsets = push_array(arena, U64, row_count);
     ProfBegin("read string offsets");
     {
@@ -1715,12 +1574,15 @@ gdb_column_convert_to_disk_backed(GDB_Column* column)
   {
     os_file_write(file, r1u64(0, sizeof(U64)), &column->variable_capacity);
     os_file_write(file, r1u64(sizeof(U64), sizeof(U64) + column->variable_capacity), column->data);
-    os_file_write(file, r1u64(sizeof(U64) + column->variable_capacity, sizeof(U64) + column->variable_capacity + (column->row_count * sizeof(U64))), column->offsets);
+    os_file_write(file, r1u64(sizeof(U64) + column->variable_capacity, 
+                              sizeof(U64) + column->variable_capacity +
+                              column->row_count * sizeof(U64)),
+                  column->offsets);
     column->variable_capacity = column->offsets[column->row_count - 1];
   }
   else
   {
-    os_file_write(file, r1u64(0, column->row_count * column->size), column->data);
+    os_file_write(file, r1u64(0, (column->row_count + 1) * column->size), column->data);
   }
   
   column->is_disk_backed = 1;

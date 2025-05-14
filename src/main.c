@@ -48,14 +48,26 @@ entry_point(void)
   
   log_info("total gpu memory: %llu (MB)", gpu_device_total_memory() >> 20);
   
+  /*
   String8 create_query = str8_lit("CREATE DATABASE testing;"
                                   "IMPORT INTO xlong_2col FROM 'xlong_2col.csv';");
   
   String8 select_query = str8_lit("USE testing;"
                                   "SELECT * FROM xlong_2col "
-                                  "WHERE col_0 == 488;");
+                                  "WHERE col_0 == 467;");
+  app_execute_query(create_query);
+  //app_execute_query(select_query);
+  */
+  
+  String8 create_query = str8_lit("CREATE DATABASE testing;"
+                                  "IMPORT INTO short_2col FROM 'short_2col.csv';");
+  
+  String8 select_query = str8_lit("USE testing;"
+                                  "SELECT * FROM short_2col "
+                                  "WHERE col_0 == 500;");
   //app_execute_query(create_query);
   app_execute_query(select_query);
+  
   
   ProfEnd();
   ProfEndCapture();

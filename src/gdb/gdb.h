@@ -131,6 +131,7 @@ struct GDB_Column
   
   // tec: disk backed
   B32 is_disk_backed;
+  B32 disk_backed_offset_initialized;
   String8 disk_path;
   OS_Handle file;
   OS_Handle file_map;
