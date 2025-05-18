@@ -1136,9 +1136,10 @@ gdb_column_add_data(GDB_Column* column, void* data)
           if (!column->is_disk_backed)
           {
             gdb_column_convert_to_disk_backed(column);
+            gdb_column_add_data(column, data);
+            //gdb_column_add_data_disk_backed(column, data);
+            return;
           }
-          gdb_column_add_data_disk_backed(column, data);
-          return;
         }
         
         U8* new_data = push_array(column->arena, U8, new_variable_capacity);
