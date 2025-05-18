@@ -64,9 +64,9 @@ entry_point(void)
   
   String8 select_query = str8_lit("USE testing;"
                                   "SELECT * FROM short_2col "
-                                  "WHERE col_0 == 500;");
-  //app_execute_query(create_query);
-  app_execute_query(select_query);
+                                  "WHERE col_0 == 467;");
+  app_execute_query(create_query);
+  //app_execute_query(select_query);
   
   
   ProfEnd();

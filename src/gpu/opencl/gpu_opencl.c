@@ -48,7 +48,14 @@ gpu_init(void)
   }
   
   //- tec: create command queue
-  g_opencl_state->command_queue = clCreateCommandQueue(g_opencl_state->context, g_opencl_state->device, 0, &ret);
+  //g_opencl_state->command_queue = clCreateCommandQueue(g_opencl_state->context, g_opencl_state->device, 0, &ret);
+  cl_queue_properties props[] =
+  {
+    CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE,
+    0
+  };
+  
+  g_opencl_state->command_queue = clCreateCommandQueueWithProperties(g_opencl_state->context, g_opencl_state->device, props, &ret);
   if (ret != CL_SUCCESS) 
   {
     log_error("Failed to create OpenCL command queue.");
@@ -64,6 +71,16 @@ gpu_release(void)
   clReleaseContext(g_opencl_state->context);
   
   arena_release(g_opencl_state->arena);
+}
+
+internal void
+gpu_wait(void)
+{
+  ProfBeginFunction();
+  
+  clFinish(g_opencl_state->command_queue);
+  
+  ProfEnd();
 }
 
 internal U64
@@ -164,8 +181,17 @@ gpu_buffer_write(GPU_Buffer* buffer, void* data, U64 size)
 {
   ProfBeginFunction();
   
-  clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
-  clFinish(g_opencl_state->command_queue);
+  cl_event write_event;
+  clEnqueueWriteBuffer(g_opencl_state->command_queue, buffer->buffer, CL_FALSE, 0, size, data, 0, NULL, &write_event);
+  clWaitForEvents(1, &write_event);
+  
+  cl_ulong start_time = 0;
+  cl_ulong end_time   = 0;
+  clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);
+  clGetEventProfilingInfo(write_event, CL_PROFILING_COMMAND_END,   sizeof(cl_ulong), &end_time,   NULL);
+  
+  log_debug("buffer write time %llu microseconds", (end_time - start_time) / 1000);
+  clReleaseEvent(write_event);
   
   ProfEnd();
 }
@@ -175,51 +201,22 @@ gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 {
   ProfBeginFunction();
   
-  clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_TRUE, 0, size, data, 0, NULL, NULL);
-  clFinish(g_opencl_state->command_queue);
+  cl_event read_event;
+  clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_FALSE, 0, size, data, 0, NULL, &read_event);
+  clWaitForEvents(1, &read_event);
+  
+  cl_ulong start_time = 0;
+  cl_ulong end_time   = 0;
+  clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);
+  clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END,   sizeof(cl_ulong), &end_time,   NULL);
+  
+  log_debug("buffer read time %llu microseconds", (end_time - start_time) / 1000);
+  clReleaseEvent(read_event);
   
   ProfEnd();
 }
 
 //~ tec: kernel
-internal void
-os_file_create_dirs(String8 full_path)
-{
-  Temp scratch = scratch_begin(0, 0);
-  String8 path = push_str8_copy(scratch.arena, full_path);
-  
-  for (U64 i = path.size; i > 0; i--)
-  {
-    if (path.str[i - 1] == '/' || path.str[i - 1] == '\\')
-    {
-      String8 dir_path = str8_substr(path, r1u64(0, i - 1));
-      
-      if (os_file_path_exists(dir_path)) break;
-      
-      // Walk backward, collect missing dirs
-      String8List to_create = {0};
-      for (;;)
-      {
-        str8_list_push_front(scratch.arena, &to_create, dir_path);
-        if (dir_path.size == 0 || os_file_path_exists(dir_path)) break;
-        
-        U64 j;
-        for (j = dir_path.size; j > 0 && dir_path.str[j - 1] != '/' && dir_path.str[j - 1] != '\\'; j--) {}
-        dir_path = str8_substr(dir_path,  r1u64(0, j > 0 ? j - 1 : 0));
-      }
-      
-      for (String8Node *node = to_create.first; node != NULL; node = node->next)
-      {
-        os_make_directory(node->string);
-      }
-      
-      break;
-    }
-  }
-  
-  scratch_end(scratch);
-}
-
 internal cl_program
 gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
 {
@@ -297,7 +294,6 @@ gpu_opencl_load_or_build_program(String8 source, String8 kernel_name)
   unsigned char *binaries[] = { binary };
   clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(binaries), &binaries, NULL);
   
-  os_file_create_dirs(cache_path);
   OS_Handle out_file = os_file_open(OS_AccessFlag_Write, cache_path);
   if (!os_handle_match(os_handle_zero(), out_file))
   {
@@ -349,21 +345,27 @@ gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size
   
   cl_int err;
   size_t global_size[] = { global_work_size };
-  size_t local_size[] = { local_work_size };
+  size_t local_size[]  = { local_work_size };
   
-  U64 gpu_kernel_start = os_now_microseconds();
-  err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, NULL);
-  U64 gpu_kernel_end = os_now_microseconds();
-  log_debug("kernel execution time %llu microseconds", gpu_kernel_end - gpu_kernel_start);
+  cl_event kernel_event;
+  err = clEnqueueNDRangeKernel(g_opencl_state->command_queue, kernel->kernel, 1, NULL, global_size, local_size, 0, NULL, &kernel_event);
   
   if (err != CL_SUCCESS)
   {
     log_error("failed to execute OpenCL kernel (Code: %d)", err);
+    ProfEnd();
     return;
   }
   
-  // tec: wait for execution to complete
-  clFinish(g_opencl_state->command_queue);
+  clWaitForEvents(1, &kernel_event);
+  
+  cl_ulong start_time = 0;
+  cl_ulong end_time = 0;
+  clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);
+  clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_END,   sizeof(cl_ulong), &end_time,   NULL);
+  
+  log_debug("kernel execution time %llu microseconds", (end_time - start_time) / 1000);
+  clReleaseEvent(kernel_event);
   
   ProfEnd();
 }

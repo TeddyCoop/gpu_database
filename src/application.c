@@ -256,7 +256,7 @@ app_execute_query(String8 sql_query)
   String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   gdb_database_save(database, database_filepath);
   
-  //gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
+  gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
   
   //test_print_database(database);
   
@@ -374,19 +374,21 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       gpu_kernel_set_arg_u64(kernel,    gpu_buffer_count + 2, chunk_rows);
       
       // tec: TODO fix local size
-      //gpu_kernel_execute(kernel, chunk_rows, 1);
       U64 local_size = 1;
       U64 group_size = (chunk_rows + (local_size - 1)) / local_size * local_size;
-      
       U64 gpu_kernel_start = os_now_microseconds();
       gpu_kernel_execute(kernel, chunk_rows, local_size);
       U64 gpu_kernel_end = os_now_microseconds();
       gpu_kernel_execution_time += gpu_kernel_end - gpu_kernel_start;
       
+      gpu_wait();
+      
       U64 result_count = 0;
       gpu_buffer_read(result_counter_buffer, &result_count, sizeof(U64));
       U64* chunk_results = push_array(arena, U64, result_count);
       gpu_buffer_read(output_buffer, chunk_results, result_count * sizeof(U64));
+      
+      gpu_wait();
       
       if (result_count != 0)
       {
@@ -405,10 +407,6 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         
         MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
         result.count += result_count;
-        
-        //MemoryCopy(result.indices + (result.count * sizeof(U64)), chunk_results, result_count * sizeof(U64));
-        //MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
-        //result.count += result_count;
       }
       
       temp_end(chunk_arena);
@@ -475,7 +473,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     gpu_kernel_execute(kernel, global_size, group_size);
     U64 gpu_kernel_end = os_now_microseconds();
     gpu_kernel_execution_time += gpu_kernel_end - gpu_kernel_start;
-    //gpu_kernel_execute(kernel, table->row_count, table->row_count > 32 ? 32 : 1);
+    
+    gpu_wait();
     
     U64 result_count = 0;
     gpu_buffer_read(result_counter_buffer, &result_count, sizeof(U64));
@@ -483,6 +482,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     gpu_buffer_read(output_buffer, indices, result_count * sizeof(U64));
     result.indices = indices;
     result.count = result_count;
+    
+    gpu_wait();
     
     gpu_buffer_release(output_buffer);
     gpu_buffer_release(result_counter_buffer);

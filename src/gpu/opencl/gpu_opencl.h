@@ -38,6 +38,6 @@ global GPU_State* g_opencl_state = 0;
 
 internal cl_mem_flags gpu_flags_to_opencl_flags(GPU_BufferFlags flags);
 
-internal cl_program gpu_opencl_build_program(String8 source);
+internal cl_program gpu_opencl_load_or_build_program(String8 source, String8 kernel_name);
 
 #endif //GPU_OPENCL_H

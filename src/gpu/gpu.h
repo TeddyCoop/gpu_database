@@ -29,6 +29,7 @@ typedef struct GPU_Kernel GPU_Kernel;
 
 internal void gpu_init(void);
 internal void gpu_release(void);
+internal void gpu_wait(void);
 
 // tec: returns total device memory in bytes
 internal U64 gpu_device_total_memory(void);
@@ -46,6 +47,8 @@ internal void gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size);
 internal GPU_Kernel* gpu_kernel_alloc(String8 name, String8 src);
 internal void gpu_kernel_release(GPU_Kernel *kernel);
 internal void gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size);
+internal void gpu_kernel_set_arg_buffer(GPU_Kernel* kernel, U32 index, GPU_Buffer* buffer);
+internal void gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value);
 
 internal String8 gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* ir_node, String8List* active_columns);
 

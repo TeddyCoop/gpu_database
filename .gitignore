@@ -5,3 +5,4 @@ benchmark_info.txt
 /queries
 /datasets
 /deterministic_datasets
+/src/third_party/vulkan

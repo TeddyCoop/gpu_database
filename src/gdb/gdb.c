@@ -927,6 +927,11 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
               case GDB_ColumnType_String8:
               default:
               {
+                if (table->row_count == 667)
+                {
+                  U32 x= 0;
+                }
+                
                 gdb_column_add_data(column, &node->string);
               } break;
             }
@@ -1056,15 +1061,18 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       
       temp_end(scratch);
       
+      os_file_close(file);
+      
       ProfEnd();
+      file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write | OS_AccessFlag_Append, column->disk_path);
     }
     U64 string_offset = column->variable_capacity;
     os_file_write(file, r1u64(sizeof(U64) + string_offset, sizeof(U64) + string_offset + str->size), str->str);
     
     U64 new_end_offset = string_offset + str->size;
     os_file_write(file,
-                  r1u64(offset_array_offset + (offset_count + 1) * sizeof(U64),
-                        offset_array_offset + (offset_count + 2) * sizeof(U64)),
+                  r1u64(offset_array_offset + (offset_count + 0) * sizeof(U64),
+                        offset_array_offset + (offset_count + 1) * sizeof(U64)),
                   &new_end_offset);
     
     column->variable_capacity += str->size;
@@ -1579,11 +1587,14 @@ gdb_column_convert_to_disk_backed(GDB_Column* column)
                               column->row_count * sizeof(U64)),
                   column->offsets);
     column->variable_capacity = column->offsets[column->row_count - 1];
+    
+    os_file_close(file);
   }
   else
   {
     os_file_write(file, r1u64(0, (column->row_count + 1) * column->size), column->data);
   }
+  file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write | OS_AccessFlag_Append, column_path);
   
   column->is_disk_backed = 1;
   column->disk_path = push_str8_copy(column->arena, column_path);
