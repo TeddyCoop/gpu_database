@@ -1382,61 +1382,77 @@ gdb_column_get_data_range(Arena* arena, GDB_Column* column, Rng1U64 row_range, U
 {
   ProfBeginFunction();
   
-  U64 row_count = row_range.max + 1 - row_range.min;
-  U64 size = row_count * column->size;
-  
   if (column->type == GDB_ColumnType_String8)
   {
     log_error("gdb_column_get_data_range was called, but column type is string. did you mean  gdb_column_get_string_chunk?");
+    *out_size = 0;
+    ProfEnd();
     return NULL;
   }
   
-  if (column->is_disk_backed)
+  if (row_range.max < row_range.min || row_range.max > column->row_count)
   {
-    void* data_ptr = push_array(arena, U8, size);
-    OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
-    if (!os_handle_match(os_handle_zero(), file))
-    {
-      // tec: is the row_range inclusive?? may fix the file reading issue
-      U64 offset_start = row_range.min * column->size;
-      U64 offset_end = (row_range.max + 1) * column->size;
-      U64 read_file_size = os_file_read(file, r1u64(offset_start, offset_end), data_ptr);
-      *out_size = size;
-      
-      if (read_file_size != size)
-      {
-        // tec: when reading the end of a large file. the calculated size may be different than the
-        // read size. i think its something to do with Windows and how its saving the file. but all the data is
-        // there, TODO figure out what is going on
-        //log_error("failed to read data for non-string column: %.*s", str8_varg(column->disk_path));
-        //log_info("calculated size %llu read size %llu", size, read_file_size);
-        //os_file_close(file);
-        *out_size = read_file_size;
-        //return data_ptr;
-        // tec: NOTE this could be caused by the incorrect gdb_column_get_total_size function
-      }
-      
-      os_file_close(file);
-      ProfEnd();
-      return data_ptr;
-    }
-    else
-    {
-      log_error("failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
-      *out_size = 0;
-      ProfEnd();
-      return NULL;
-    }
+    log_error("invalid row range [%llu - %llu] for column with %llu rows", row_range.min, row_range.max, column->row_count);
+    *out_size = 0;
+    ProfEnd();
+    return NULL;
   }
-  else
+  
+  U64 row_count = row_range.max - row_range.min;
+  U64 size = row_count * column->size;
+  *out_size = size;
+  
+  if (!column->is_disk_backed)
   {
     void* data_ptr = column->data + (row_range.min * column->size);
-    *out_size = size;
     ProfEnd();
     return data_ptr;
   }
   
+  void* data_ptr = push_array(arena, U8, size);
+  OS_Handle file = os_file_open(OS_AccessFlag_Read, column->disk_path);
+  if (os_handle_match(os_handle_zero(), file))
+  {
+    log_error("failed to open disk-backed column: %.*s", str8_varg(column->disk_path));
+    *out_size = 0;
+    ProfEnd();
+    return NULL;
+  }
+  
+  U64 offset = row_range.min * column->size;
+  U64 expected_bytes = size;
+  U64 actual_bytes = os_file_read(file, r1u64(offset, offset + size), data_ptr);
+  
+  if (actual_bytes != expected_bytes)
+  {
+    log_warn("Partial read for column %.*s: expected %llu bytes, got %llu",
+             str8_varg(column->name), expected_bytes, actual_bytes);
+    *out_size = actual_bytes;
+  }
+  
+  /*
+  // tec: is the row_range inclusive?? may fix the file reading issue
+  U64 offset_start = row_range.min * column->size;
+  U64 offset_end = (row_range.max + 1) * column->size;
+  U64 read_file_size = os_file_read(file, r1u64(offset_start, offset_end), data_ptr);
+  
+  if (read_file_size != size)
+  {
+    // tec: when reading the end of a large file. the calculated size may be different than the
+    // read size. i think its something to do with Windows and how its saving the file. but all the data is
+    // there, TODO figure out what is going on
+    //log_error("failed to read data for non-string column: %.*s", str8_varg(column->disk_path));
+    //log_info("calculated size %llu read size %llu", size, read_file_size);
+    //os_file_close(file);
+    *out_size = read_file_size;
+    //return data_ptr;
+    // tec: NOTE this could be caused by the incorrect gdb_column_get_total_size function
+  }
+  */
+  
+  os_file_close(file);
   ProfEnd();
+  return data_ptr;
 }
 
 internal GDB_StringDataChunk 

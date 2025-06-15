@@ -73,7 +73,7 @@ entry_point(void)
   
   String8 select_query = str8_lit("USE testing;"
                                   "SELECT * FROM large_3col "
-                                  "WHERE col_0 == 999999;");
+                                  "WHERE col_0 == 9999999;");
   //"WHERE col_2 == 'val_2_2';");
   //app_execute_query(create_query);
   app_execute_query(select_query);
