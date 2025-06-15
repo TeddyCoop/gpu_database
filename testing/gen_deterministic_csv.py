@@ -28,7 +28,17 @@ def main():
     datasets_dir = os.path.join(base_dir, 'deterministic_datasets')
 
     test_cases = [
-        {
+     {
+            "name": "large_3col",
+            "num_rows": 100_000_000,
+            "column_types": ['int', 'float', 'str']
+     },
+     {
+            "name": "xlarge_9col",
+            "num_rows": 100_000_000_000,
+            "column_types": ['int', 'float', 'str'] * 3
+     },
+"""         {
             "name": "simple_3col",
             "num_rows": 1000,
             "column_types": ['int', 'float', 'str']
@@ -52,7 +62,7 @@ def main():
             "name": "xlong_2col",
             "num_rows": 1_000_000,
             "column_types": ['int', 'str']
-        },
+        }, """
     ]
 
     for test in test_cases:

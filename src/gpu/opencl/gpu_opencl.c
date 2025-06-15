@@ -201,6 +201,12 @@ gpu_buffer_read(GPU_Buffer* buffer, void* data, U64 size)
 {
   ProfBeginFunction();
   
+  if (size == 0)
+  {
+    log_info("can not request read gpu buffer with size 0");
+    return;
+  }
+  
   cl_event read_event;
   clEnqueueReadBuffer(g_opencl_state->command_queue, buffer->buffer, CL_FALSE, 0, size, data, 0, NULL, &read_event);
   clWaitForEvents(1, &read_event);
@@ -364,10 +370,17 @@ gpu_kernel_execute(GPU_Kernel* kernel, U32 global_work_size, U32 local_work_size
   clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);
   clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_END,   sizeof(cl_ulong), &end_time,   NULL);
   
-  log_debug("kernel execution time %llu microseconds", (end_time - start_time) / 1000);
+  g_opencl_state->executed_kernel_time = (end_time - start_time) / 1000;
+  //log_debug("kernel execution time %llu microseconds", (end_time - start_time) / 1000);
   clReleaseEvent(kernel_event);
   
   ProfEnd();
+}
+
+internal U64
+gpu_get_executed_kernel_time_microseconds()
+{
+  return g_opencl_state->executed_kernel_time;
 }
 
 internal void
@@ -533,6 +546,9 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
   }
 }
 
+#define GPU_OPTIMIZE_GROUP_COMPACTION 0
+#define GPU_USE_64_BIT_COUNTERS 1
+
 internal String8
 gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* database, IR_Node* ir_node, String8List* active_columns)
 {
@@ -540,6 +556,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
   
   String8List builder = { 0 };
   
+  // tec: find from table node
   IR_Node* table_node = ir_node_find_child(ir_node, IR_NodeType_Table);
   if (!table_node)
   {
@@ -547,6 +564,7 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     return str8_lit("");
   }
   
+  // tec: check if any string columns are used
   B32 contains_string_column = 0;
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {
@@ -557,17 +575,26 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
       contains_string_column = 1;
     }
   }
-  
   if (contains_string_column)
   {
     str8_list_push(arena, &builder, g_gpu_opencl_str_match_code);
     str8_list_push(arena, &builder, g_gpu_opencl_str_contains_code);
     str8_list_push(arena, &builder, str8_lit("\n"));
   }
+  
+  // tec: kernel signature
+#if (GPU_OPTIMIZE_GROUP_COMPACTION == 1)
+  str8_list_push(arena, &builder, str8_lit("#define LOCAL_SIZE 256\n\n"));
+#endif
+#if (GPU_USE_64_BIT_COUNTERS == 0)
+  str8_list_push(arena, &builder, str8_lit("#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable\n\n"));
+#endif
+  
   str8_list_push(arena, &builder, str8_lit("__kernel void "));
   str8_list_push(arena, &builder, kernel_name);
   str8_list_push(arena, &builder, str8_lit("(\n"));
   
+  // tec: parameters: one for every active column
   for (String8Node* node = active_columns->first; node != NULL; node = node->next)
   {
     String8 str = node->string;
@@ -592,30 +619,77 @@ gpu_generate_kernel_from_ir(Arena* arena, String8 kernel_name, GDB_Database* dat
     }
   }
   
-  IR_Node* where_clause = ir_node_find_child(ir_node, IR_NodeType_Where);
-  
+  // tec: output buffers and row count
   str8_list_push(arena, &builder, str8_lit("__global ulong* output_indices,\n"));
-  //str8_list_push(arena, &builder, str8_lit("__global atomic_ulong* output_count,\n"));
   str8_list_push(arena, &builder, str8_lit("volatile __global ulong* output_count,\n"));
   str8_list_push(arena, &builder, str8_lit("ulong row_count) {\n"));
   
+  // tec; thread/work group bookkeeping
   str8_list_push(arena, &builder, str8_lit("  ulong i = get_global_id(0);\n"));
   str8_list_push(arena, &builder, str8_lit("  if (i >= row_count) return;\n"));
   
+  // tec: find where clause
+  IR_Node* where_clause = ir_node_find_child(ir_node, IR_NodeType_Where);
+  
   if (where_clause)
   {
+#if (GPU_OPTIMIZE_GROUP_COMPACTION == 1)
+    // tec: work group local declarations
+    str8_list_push(arena, &builder, str8_lit("  int  lid   = get_local_id(0);\n"));
+    str8_list_push(arena, &builder, str8_lit("  int  lsize = get_local_size(0);\n"));
+    str8_list_push(arena, &builder, str8_lit("  __local ulong local_indices[LOCAL_SIZE];\n"));
+    str8_list_push(arena, &builder, str8_lit("  __local ulong prefix[LOCAL_SIZE];\n"));
+    str8_list_push(arena, &builder, str8_lit("  __local ulong shared_offset;\n\n"));
+    
+    // tec: evaluate predicate
+    str8_list_push(arena, &builder, str8_lit("  int match = ("));
+    gpu_opencl_generate_where(arena, &builder, where_clause->first);
+    str8_list_push(arena, &builder, str8_lit(") ? 1 : 0;\n"));
+    
+    // tec: store match + exclusive scan into prefix[]
+    str8_list_push(arena, &builder, str8_lit("  local_indices[lid] = match ? i : 0;\n"));
+    str8_list_push(arena, &builder, str8_lit("  prefix[lid] = match;\n"));
+    str8_list_push(arena, &builder, str8_lit("  barrier(CLK_LOCAL_MEM_FENCE);\n"));
+    
+    // tec: inclusive scan (naïve, O(log n) synchronizations)
+    str8_list_push(arena, &builder, str8_lit("  for (int off = 1; off < lsize; off <<= 1) {\n"));
+    str8_list_push(arena, &builder, str8_lit("    ulong v = prefix[lid];\n"));
+    str8_list_push(arena, &builder, str8_lit("    barrier(CLK_LOCAL_MEM_FENCE);\n"));
+    str8_list_push(arena, &builder, str8_lit("    if (lid >= off) v += prefix[lid - off];\n"));
+    str8_list_push(arena, &builder, str8_lit("    barrier(CLK_LOCAL_MEM_FENCE);\n"));
+    str8_list_push(arena, &builder, str8_lit("    prefix[lid] = v;\n"));
+    str8_list_push(arena, &builder, str8_lit("  }\n\n"));
+    
+    // tec: One global atomic per group (thread 0)
+    str8_list_push(arena, &builder, str8_lit("  ulong group_total = prefix[lsize - 1];\n"));
+    str8_list_push(arena, &builder, str8_lit("  ulong global_offset = 0;\n"));
+    str8_list_push(arena, &builder, str8_lit("  if (lid == 0 && group_total)\n"));
+    //str8_list_push(arena, &builder, str8_lit("    global_offset = atomic_add(output_count, group_total);\n"));
+    str8_list_push(arena, &builder, str8_lit("    global_offset = atom_add(output_count, group_total);\n"));
+    str8_list_push(arena, &builder, str8_lit("  if (lid == 0) shared_offset = global_offset;\n"));
+    str8_list_push(arena, &builder, str8_lit("  barrier(CLK_LOCAL_MEM_FENCE);\n"));
+    str8_list_push(arena, &builder, str8_lit("  global_offset = shared_offset;\n\n"));
+    
+    // tec: Write results (only matching threads reach here)
+    str8_list_push(arena, &builder, str8_lit("  if (match) {\n"));
+    str8_list_push(arena, &builder, str8_lit("    ulong pos = global_offset + prefix[lid] - 1;\n"));
+    str8_list_push(arena, &builder, str8_lit("    output_indices[pos] = i;\n"));
+    str8_list_push(arena, &builder, str8_lit("  }\n"));
+#else
     str8_list_push(arena, &builder, str8_lit("  if ("));
     gpu_opencl_generate_where(arena, &builder, where_clause->first);
     str8_list_push(arena, &builder, str8_lit(") {\n"));
-    //str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_fetch_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    ulong index = atomic_add(output_count, 1);\n"));
     str8_list_push(arena, &builder, str8_lit("    output_indices[index] = i;\n"));
     
     str8_list_push(arena, &builder, str8_lit("  }\n"));
+#endif
   }
   else
   {
-    str8_list_push(arena, &builder, str8_lit("  output_indices[i] = 1;\n"));
+    //str8_list_push(arena, &builder, str8_lit("  output_indices[i] = 1;\n"));
+    str8_list_push(arena, &builder, str8_lit("  output_indices[i] = i;\n"));
+    str8_list_push(arena, &builder, str8_lit("  if (i == 0) *output_count = row_count;\n"));
   }
   
   str8_list_push(arena, &builder, str8_lit("}"));

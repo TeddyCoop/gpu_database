@@ -1060,11 +1060,7 @@ gdb_column_add_data_disk_backed(GDB_Column* column, void* data)
       os_file_write(file, r1u64(old_offset_pos, old_offset_pos + old_offset_array_size), zero_buf);
       
       temp_end(scratch);
-      
-      os_file_close(file);
-      
       ProfEnd();
-      file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write | OS_AccessFlag_Append, column->disk_path);
     }
     U64 string_offset = column->variable_capacity;
     os_file_write(file, r1u64(sizeof(U64) + string_offset, sizeof(U64) + string_offset + str->size), str->str);
@@ -1352,6 +1348,16 @@ gdb_column_get_total_size(GDB_Column* column)
   {
     FileProperties props = os_properties_from_file_path(column->disk_path);
     total_size = props.size;
+    
+    // Extra sanity check for string columns
+    if (column->type == GDB_ColumnType_String8 && column->row_count > 0)
+    {
+      U64 expected_minimum_size = (column->row_count + 1) * sizeof(U64);
+      if (total_size < expected_minimum_size)
+      {
+        log_error("String column file too small: %.*s", str8_varg(column->name));
+      }
+    }
   }
   else
   {
@@ -1359,7 +1365,8 @@ gdb_column_get_total_size(GDB_Column* column)
     {
       total_size += sizeof(U64);
       total_size += column->variable_capacity;
-      total_size += column->row_count * sizeof(U64);
+      total_size = column->variable_capacity + (column->row_count + 1) * sizeof(U64);
+      //total_size += column->row_count * sizeof(U64);
     }
     else
     {
@@ -1588,14 +1595,11 @@ gdb_column_convert_to_disk_backed(GDB_Column* column)
                               column->row_count * sizeof(U64)),
                   column->offsets);
     column->variable_capacity = column->offsets[column->row_count - 1];
-    
-    os_file_close(file);
   }
   else
   {
     os_file_write(file, r1u64(0, (column->row_count + 1) * column->size), column->data);
   }
-  file = os_file_open(OS_AccessFlag_Read | OS_AccessFlag_Write | OS_AccessFlag_Append, column_path);
   
   column->is_disk_backed = 1;
   column->disk_path = push_str8_copy(column->arena, column_path);

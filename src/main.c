@@ -59,12 +59,22 @@ entry_point(void)
   //app_execute_query(select_query);
   */
   
+  /*
   String8 create_query = str8_lit("CREATE DATABASE testing;"
                                   "IMPORT INTO short_2col FROM 'short_2col.csv';");
   
   String8 select_query = str8_lit("USE testing;"
                                   "SELECT * FROM short_2col "
                                   "WHERE col_0 == 0;");
+  */
+  
+  String8 create_query = str8_lit("CREATE DATABASE testing;"
+                                  "IMPORT INTO large_3col FROM 'large_3col.csv';");
+  
+  String8 select_query = str8_lit("USE testing;"
+                                  "SELECT * FROM large_3col "
+                                  "WHERE col_0 == 999999;");
+  //"WHERE col_2 == 'val_2_2';");
   //app_execute_query(create_query);
   app_execute_query(select_query);
   

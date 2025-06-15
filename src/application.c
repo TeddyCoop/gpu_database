@@ -256,7 +256,7 @@ app_execute_query(String8 sql_query)
   String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
   gdb_database_save(database, database_filepath);
   
-  gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
+  //gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
   
   //test_print_database(database);
   
@@ -275,7 +275,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   String8List active_columns = { 0 };
   ir_create_active_column_list(arena, where_clause, &active_columns);
   String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, root_node, &active_columns);
-  //log_debug("kernel output:\n%.*s", str8_varg(kernel_code));
+  log_debug("kernel output:\n%.*s", str8_varg(kernel_code));
   
   GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
   if (!kernel)
@@ -321,6 +321,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       
       GPU_Buffer** column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
       U32 column_index = 0;
+      
+      log_info("filtering rows %llu-%llu", chunk_index * rows_per_chunk, Min((chunk_index + 1) * rows_per_chunk, table->row_count));
       
       for (String8Node* node = active_columns.first; node != NULL; node = node->next)
       {
@@ -376,19 +378,20 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
       // tec: TODO fix local size
       U64 local_size = 1;
       U64 group_size = (chunk_rows + (local_size - 1)) / local_size * local_size;
-      U64 gpu_kernel_start = os_now_microseconds();
       gpu_kernel_execute(kernel, chunk_rows, local_size);
-      U64 gpu_kernel_end = os_now_microseconds();
-      gpu_kernel_execution_time += gpu_kernel_end - gpu_kernel_start;
+      gpu_kernel_execution_time += gpu_get_executed_kernel_time_microseconds();
       
       gpu_wait();
       
       U64 result_count = 0;
       gpu_buffer_read(result_counter_buffer, &result_count, sizeof(U64));
-      U64* chunk_results = push_array(arena, U64, result_count);
-      gpu_buffer_read(output_buffer, chunk_results, result_count * sizeof(U64));
+      //U64* chunk_results = push_array(chunk_arena.arena, U64, result_count);
+      //gpu_buffer_read(output_buffer, chunk_results, result_count * sizeof(U64));
       
       gpu_wait();
+      
+      for (U64 i = 0; i < gpu_buffer_count; i++) gpu_buffer_release(column_gpu_buffers[i]);
+      temp_end(chunk_arena);
       
       if (result_count != 0)
       {
@@ -400,23 +403,25 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         else if (result.count + result_count > result.cap)
         {
           result.cap = Max(result.cap * 2, result.count + result_count);
-          U64* new_ptr = push_array_no_zero(arena, U64, result.cap);
+          U64* new_ptr = push_array(arena, U64, result.cap);
           MemoryCopy(new_ptr, result.indices, result.count * sizeof(U64));
           result.indices = new_ptr;
         }
         
-        MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
+        
+        //MemoryCopy(result.indices + result.count, chunk_results, result_count * sizeof(U64));
+        gpu_buffer_read(output_buffer, result.indices + result.count, result_count * sizeof(U64));
         result.count += result_count;
       }
       
-      temp_end(chunk_arena);
       gpu_buffer_release(output_buffer);
       gpu_buffer_release(result_counter_buffer);
-      for (U64 i = 0; i < gpu_buffer_count; i++) gpu_buffer_release(column_gpu_buffers[i]);
     }
   }
   else
   {
+    log_info("filtering rows %llu-%llu", 0, table->row_count);
+    
     GPU_Buffer** column_gpu_buffers = push_array(arena, GPU_Buffer*, gpu_buffer_count);
     U32 column_index = 0;
     
@@ -469,10 +474,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     U64 group_size = 32;
     U64 row_count = table->row_count;
     U64 global_size = (row_count + (group_size - 1)) & ~(group_size - 1);
-    U64 gpu_kernel_start = os_now_microseconds();
     gpu_kernel_execute(kernel, global_size, group_size);
-    U64 gpu_kernel_end = os_now_microseconds();
-    gpu_kernel_execution_time += gpu_kernel_end - gpu_kernel_start;
+    gpu_kernel_execution_time += gpu_get_executed_kernel_time_microseconds();
     
     gpu_wait();
     

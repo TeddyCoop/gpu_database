@@ -32,6 +32,8 @@ struct GPU_State
   cl_device_id device;
   cl_context context;
   cl_command_queue command_queue;
+  
+  U64 executed_kernel_time;
 };
 
 global GPU_State* g_opencl_state = 0;

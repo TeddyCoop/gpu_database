@@ -6,3 +6,4 @@ benchmark_info.txt
 /datasets
 /deterministic_datasets
 /src/third_party/vulkan
+/cmake_build
