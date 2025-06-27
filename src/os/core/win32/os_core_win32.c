@@ -1753,7 +1753,9 @@ w32_entry_point_caller(int argc, WCHAR **wargv)
   
   //- tec: call into "real" entry point
   //main_thread_base_entry_point(entry_point, argv, (U64)argc);
-  entry_point();
+  String8List command_line_argument_strings = os_string_list_from_argcv(args_arena, argc, argv);
+  CmdLine cmdline = cmd_line_from_string_list(args_arena, command_line_argument_strings);
+  entry_point(&cmdline);
 }
 
 #if BUILD_CONSOLE_INTERFACE

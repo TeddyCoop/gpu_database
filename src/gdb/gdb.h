@@ -202,6 +202,7 @@ internal B32 gdb_table_save(GDB_Table* table, String8 table_dir);
 internal B32 gdb_table_export_csv(GDB_Table* table, String8 path);
 internal GDB_Table* gdb_table_load(String8 table_dir, String8 meta_path);
 internal GDB_Table* gdb_table_import_csv(GDB_Database* database, String8 path);
+internal GDB_Table* gdb_table_import_csv_streaming(GDB_Database *db, String8 table_name, String8 path);
 internal GDB_Column* gdb_table_find_column(GDB_Table* table, String8 column_name);
 
 //~ tec: columns

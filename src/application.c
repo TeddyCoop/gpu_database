@@ -29,7 +29,7 @@ app_execute_query(String8 sql_query)
         
         if (use_ir_node->type == IR_NodeType_Database)
         {
-          String8 database_path = push_str8f(arena, "data/%.*s", str8_varg(use_ir_node->value));
+          String8 database_path = push_str8f(arena, "gdb_data/%.*s", str8_varg(use_ir_node->value));
           database = gdb_database_load(database_path);
           gdb_add_database(database);
         }
@@ -182,12 +182,12 @@ app_execute_query(String8 sql_query)
         //else
         {
           Temp scratch = scratch_begin(0, 0);
-          String8 filepath = push_str8f(scratch.arena, "data/%.*s", 
+          String8 filepath = push_str8f(scratch.arena, "%.*s", 
                                         str8_varg(import_file_node->value));
           //GDB_Table* table = gdb_table_import_csv(database, filepath);
-          GDB_Table* table = gdb_table_import_csv_streaming(database, filepath);
+          GDB_Table* table = gdb_table_import_csv_streaming(database, table_node->value, filepath);
           //table->name = push_str8_copy(table->arena, table_node->value);
-          table->name = push_str8_copy(table->arena, table->name);
+          //table->name = push_str8_copy(table->arena, table_node->value);
           scratch_end(scratch);
           gdb_database_add_table(database, table);
         }
@@ -253,8 +253,11 @@ app_execute_query(String8 sql_query)
     }
   }
   
-  String8 database_filepath = push_str8f(arena, "data/%.*s", (U32)database->name.size, database->name.str);
+  String8 database_filepath = push_str8f(arena, "gdb_data/%.*s", (U32)database->name.size, database->name.str);
   gdb_database_save(database, database_filepath);
+  
+  //String8 table_filepath = push_str8f(arena, "gdb_data/benchmark/%.*s/", str8_varg(database->tables[0]->name));
+  //gdb_table_save(database->tables[0], table_filepath);
   
   //gdb_table_export_csv(database->tables[0], str8_lit("data/output.csv"));
   
@@ -281,6 +284,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   if (!kernel)
   {
     log_error("failed to alloc kernel");
+    return result;
   }
   
   GDB_Table* table = gdb_database_find_table(database, ir_node_find_child(root_node, IR_NodeType_Table)->value);
@@ -338,10 +342,10 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
           
           if (chunk.data && chunk.offsets)
           {
-            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_HostCached, chunk.data);
+            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.data);
             column_index++;
             
-            column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_Write | GPU_BufferFlag_HostCached, chunk.offsets);
+            column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.offsets);
             column_index++;
           }
         }
@@ -481,11 +485,13 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     
     U64 result_count = 0;
     gpu_buffer_read(result_counter_buffer, &result_count, sizeof(U64));
-    U64* indices = push_array(arena, U64, result_count);
-    gpu_buffer_read(output_buffer, indices, result_count * sizeof(U64));
-    result.indices = indices;
-    result.count = result_count;
-    
+    if (result_count != 0)
+    {
+      U64* indices = push_array(arena, U64, result_count);
+      gpu_buffer_read(output_buffer, indices, result_count * sizeof(U64));
+      result.indices = indices;
+      result.count = result_count;
+    }
     gpu_wait();
     
     gpu_buffer_release(output_buffer);

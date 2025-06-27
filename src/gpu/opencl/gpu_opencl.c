@@ -529,10 +529,29 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
       }
       else
       {
+        
+        if (left->type == IR_NodeType_Column)
+        {
+          str8_list_pushf(arena, builder, "%.*s[i] %.*s %.*s", 
+                          str8_varg(left->value),
+                          str8_varg(condition->value),
+                          str8_varg(right->value));
+        }
+        else
+        {
+          
+          str8_list_pushf(arena, builder, "%.*s %.*s %.*s[i]", 
+                          str8_varg(left->value),
+                          str8_varg(condition->value),
+                          str8_varg(right->value));
+        }
+        
+        /*
         str8_list_pushf(arena, builder, "%.*s[i] %.*s %.*s", 
                         str8_varg(left->value),
                         str8_varg(condition->value),
                         str8_varg(right->value));
+      */
       }
     }
   }

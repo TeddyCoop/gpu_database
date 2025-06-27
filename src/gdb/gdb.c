@@ -84,7 +84,7 @@ gdb_database_add_table(GDB_Database* database, GDB_Table* table)
   database->tables[database->table_count++] = table;
 }
 
-global String8 g_gdb_database_save_path = str8_lit_comp("data/");
+global String8 g_gdb_database_save_path = str8_lit_comp("gdb_data/");
 
 internal B32
 gdb_database_save(GDB_Database* database, String8 directory)
@@ -379,89 +379,6 @@ gdb_table_save(GDB_Table* table, String8 table_dir)
   return 1;
 }
 
-#if 0
-internal B32
-gdb_table_export_csv(GDB_Table* table, String8 path)
-{
-  ProfBeginFunction();
-  
-  OS_Handle file = os_file_open(OS_AccessFlag_Write, path);
-  if (os_handle_match(os_handle_zero(), file))
-  {
-    log_error("failed to open CSV file for writing: %s", path.str);
-    return 0;
-  }
-  
-  Temp scratch = temp_begin(g_gdb_state->arena);
-  String8List buffer = { 0 };
-  
-  // tec: write column headers
-  for (U64 i = 0; i < table->column_count; i++)
-  {
-    str8_list_push(scratch.arena, &buffer, table->columns[i]->name);
-    if (i < table->column_count - 1)
-    {
-      str8_list_push(scratch.arena, &buffer, str8_lit(","));
-    }
-  }
-  str8_list_push(scratch.arena, &buffer, str8_lit("\n"));
-  
-  // tec: write row data
-  for (U64 row = 0; row < table->row_count; row++)
-  {
-    for (U64 col = 0; col < table->column_count; col++)
-    {
-      GDB_Column* column = table->columns[col];
-      String8 output = {0};
-      
-      if (column->type == GDB_ColumnType_U64)
-      {
-        U64* data = (U64*)gdb_column_get_data(column, row);
-        output = str8_from_u64(scratch.arena, *data, 10, 0, 0);
-      }
-      if (column->type == GDB_ColumnType_U32)
-      {
-        U32* data = (U32*)gdb_column_get_data(column, row);
-        output = str8_from_u64(scratch.arena, *data, 10, 0, 0);
-      }
-      else if (column->type == GDB_ColumnType_F64)
-      {
-        F64* data = (F64*)gdb_column_get_data(column, row);
-        output = str8_from_f64(scratch.arena, *data, 6);
-      }
-      else if (column->type == GDB_ColumnType_F32)
-      {
-        F32* data = (F32*)gdb_column_get_data(column, row);
-        output = str8_from_f64(scratch.arena, *data, 6);
-      }
-      else if (column->type == GDB_ColumnType_String8)
-      {
-        output = gdb_column_get_string(scratch.arena, column, row);
-      }
-      
-      if (output.size && output.str)
-      {
-        str8_list_push(scratch.arena, &buffer, output);
-      }
-      if (col < table->column_count - 1)
-      {
-        str8_list_push(scratch.arena, &buffer, str8_lit(","));
-      }
-    }
-    str8_list_push(scratch.arena, &buffer, str8_lit("\n"));
-  }
-  
-  // tec: serialize and write to file
-  String8 final_output = str8_list_join(scratch.arena, &buffer, 0);
-  os_file_write(file, r1u64(0, final_output.size), final_output.str);
-  
-  os_file_close(file);
-  temp_end(scratch);
-  
-  ProfEnd();
-  return 1;
-}
-#endif
 internal B32
 gdb_table_export_csv(GDB_Table* table, String8 path)
 {
@@ -672,12 +589,12 @@ gdb_table_load(String8 table_dir, String8 meta_path)
 }
 
 internal GDB_Table*
-gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
+gdb_table_import_csv_streaming(GDB_Database *db, String8 table_name, String8 path)
 {
   Temp scratch = temp_begin(g_gdb_state->arena);
   
-  GDB_Table *table = gdb_table_alloc(str8_lit("temp"));
-  table->name = str8_chop_last_dot(str8_skip_last_slash(path));
+  GDB_Table *table = gdb_table_alloc(table_name);
+  //table->name = str8_chop_last_dot(str8_skip_last_slash(path));
   table->parent_database = db;
   
   OS_Handle file = os_file_open(OS_AccessFlag_Read, path);
@@ -686,6 +603,8 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
     log_error("Failed to open CSV file: %.*s", str8_varg(path));
     return NULL;
   }
+  
+  log_info("starting import csv file %.*s", str8_varg(path));
   
   U64 file_size = os_properties_from_file(file).size;
   U64 buffer_size = MB(4);
@@ -944,6 +863,7 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 path)
   }
   os_file_close(file);
   temp_end(scratch);
+  log_info("ending import csv file %.*s", str8_varg(path));
   return table;
 }
 
@@ -1573,14 +1493,14 @@ gdb_generate_disk_path_for_column(Arena* arena, GDB_Column* column)
   {
     Temp scratch = scratch_begin(0, 0);
     
-    String8 database_path = push_str8f(arena, "data/%.*s/", str8_varg(database->name));
+    String8 database_path = push_str8f(arena, "gdb_data/%.*s/", str8_varg(database->name));
     
     if (!os_file_path_exists(database_path))
     {
       os_make_directory(database_path);
     }
     
-    String8 table_path = push_str8f(arena, "data/%.*s/%.*s/", str8_varg(database->name), str8_varg(table->name));
+    String8 table_path = push_str8f(arena, "gdb_data/%.*s/%.*s/", str8_varg(database->name), str8_varg(table->name));
     if (!os_file_path_exists(table_path))
     {
       os_make_directory(table_path);
@@ -1589,7 +1509,7 @@ gdb_generate_disk_path_for_column(Arena* arena, GDB_Column* column)
     scratch_end(scratch);
   }
   
-  String8 column_path = push_str8f(arena, "data/%.*s/%.*s/%.*s.dat", str8_varg(database->name), str8_varg(table->name), str8_varg(column->name));
+  String8 column_path = push_str8f(arena, "gdb_data/%.*s/%.*s/%.*s.dat", str8_varg(database->name), str8_varg(table->name), str8_varg(column->name));
   return column_path;
 }
 
@@ -1690,7 +1610,8 @@ gdb_infer_column_type(String8 value)
     return GDB_ColumnType_Invalid;
   }
   
-  if (str8_is_numeric(value))
+  B32 is_numeric = str8_is_numeric(value);
+  if (is_numeric)
   {
     if (!str8_contains(value, '.'))
     {
@@ -1707,10 +1628,11 @@ gdb_infer_column_type(String8 value)
     }
     
     F64 f64_value = f64_from_str8(value);
-    if (f64_value)
+    if (f64_value == (F32)f64_value)
     {
-      return (f64_value == (F32)f64_value) ? GDB_ColumnType_F32 : GDB_ColumnType_F64;
+      return GDB_ColumnType_F32;
     }
+    return GDB_ColumnType_F64;
   }
   return GDB_ColumnType_String8;
 }

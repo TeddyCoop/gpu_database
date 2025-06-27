@@ -331,7 +331,8 @@ internal OS_Guid os_make_guid(void);
 // into the standard codebase program entry points, named "entry_point".
 
 #if BUILD_ENTRY_DEFINING_UNIT
-internal void entry_point(void);
+//internal void entry_point(void);
+internal void entry_point(CmdLine* cmdline);
 #endif
 
 

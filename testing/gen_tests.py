@@ -21,6 +21,8 @@ def generate_csv(filename, num_rows, column_types, string_length=10):
                     row.append(str(random.randint(0, 1_000_000)))
                 elif col_type == 'float':
                     row.append(str(round(random.uniform(0, 10000), 2)))
+#                elif col_type == 'bool':
+#                    row.append(str(random.choice([True, False])))
             writer.writerow(row)
             if i % 100000 == 0 and i > 0:
                 print(f"Wrote {i:,} rows to {filename}...")
@@ -49,6 +51,8 @@ def build_condition_tree(column_types):
                 val = random_string(5)
                 kind = random.choice(["contains", "equals"])
                 group.append(("str", col_name, kind, substr if kind == "contains" else val))
+#            elif col_type == 'bool':
+#                group.append(("bool", col_name, random.choice([True, False])))
         condition_tree.append(group)
 
     return condition_tree
@@ -59,29 +63,33 @@ def format_condition_tree(condition_tree, db):
     for group in condition_tree:
         conds = []
         for cond in group:
-            if cond[0] == "int":
+            kind = cond[0]
+            if kind == "int":
                 _, col, val = cond
                 conds.append(f"{col} >= {val}")
-            elif cond[0] == "float":
+            elif kind == "float":
                 _, col, low, high = cond
-                conds.append(f"{col} >= {low} AND {col} <= {high}")
-            elif cond[0] == "str":
-                _, col, kind, val = cond
-                if db == 'sqlite':
-                    if kind == "contains":
-                        conds.append(f"{col} LIKE '%{val}%'")
-                    else:
-                        conds.append(f"{col} = '{val}'")
-                elif db == 'postgres':
-                    if kind == "contains":
-                        conds.append(f"{col} ILIKE '%{val}%'")
-                    else:
-                        conds.append(f"{col} = '{val}'")
+                if db == 'gdb':
+                    conds.append(f"(({low} < {col}) AND ({col} < {high}))")
                 else:
-                    if kind == "contains":
-                        conds.append(f"{col} CONTAINS '{val}'")
-                    else:
-                        conds.append(f"{col} == '{val}'")
+                    conds.append(f"{col} BETWEEN {low} AND {high}")
+            elif kind == "str":
+                _, col, op, val = cond
+                if db == 'postgres':
+                    conds.append(f"{col} ILIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
+                elif db == 'sqlite':
+                    conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
+                elif db == 'mysql':
+                    conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
+                elif db == 'mssql':
+                    conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
+                elif db == 'gdb':
+                    conds.append(f"{col} CONTAINS '{val}'" if op == "contains" else f"{col} == '{val}'")
+                else:
+                    conds.append(f"{col} = '{val}'")
+#            elif kind == "bool":
+#                _, col, val = cond
+#                conds.append(f"{col} = {'TRUE' if val else 'FALSE'}")
         if len(conds) == 1:
             all_conds.append(conds[0])
         else:
@@ -97,46 +105,87 @@ def ensure_dirs(path):
     os.makedirs(path, exist_ok=True)
 
 test_cases = [
+    # Basic sanity tests
+    {
+        "name": "single_int_10rows",
+        "num_rows": 10,
+        "column_types": ['int'],
+        "string_length": 0,
+    },
+    {
+        "name": "single_str_short_10rows",
+        "num_rows": 10,
+        "column_types": ['str'],
+        "string_length": 4,
+    },
+
+    # Moderate datasets
     {
         "name": "triple_string_3col",
         "num_rows": 10_000_000,
         "column_types": ['str', 'str', 'str'],
         "string_length": 16
+    },
+    {
+        "name": "mixed_types_5col",
+        "num_rows": 1_000_000,
+        "column_types": ['int', 'float', 'str', 'float', 'int'],
+        "string_length": 12,
+    },
+
+    # Large datasets
+    {
+        "name": "ten_million_rows_2col",
+        "num_rows": 10_000_000,
+        "column_types": ['int', 'float'],
+        "string_length": 0,
+    },
+    {
+        "name": "hundred_million_rows_2col",
+        "num_rows": 100_000_000,
+        "column_types": ['int', 'float'],
+        "string_length": 0,
+    },
+    {
+        "name": "one_billion_rows_2col",
+        "num_rows": 1_000_000_000,
+        "column_types": ['int', 'float'],
+        "string_length": 0,
+    },
+
+    # Stress tests: wide tables
+    {
+        "name": "wide_int_100col",
+        "num_rows": 100_000,
+        "column_types": ['int'] * 100,
+        "string_length": 0,
+    },
+    {
+        "name": "wide_mixed_100col",
+        "num_rows": 100_000,
+        "column_types": (['int', 'float', 'str'] * 33),
+        "string_length": 0,
+    },
+
+    # Stress tests: long strings
+    {
+        "name": "long_string_3col",
+        "num_rows": 500_000,
+        "column_types": ['str', 'str', 'str'],
+        "string_length": 512
+    },
+
+    # Heavy compute types
+    {
+        "name": "decimal_float_mixed_10col",
+        "num_rows": 5_000_000,
+        "column_types": ['float'] * 5 + ['int'] * 5,
+        "string_length": 0,
     }
 ]
 
-"""
-    {
-        "name": "medium_25col",
-        "num_rows": 10000,
-        "column_types": ['int', 'float', 'str'] * 8 + ['str'],
-        "string_length": 24
-    },
-    {
-        "name": "large_50col",
-        "num_rows": 1000000,
-        "column_types": ['str', 'int', 'float'] * 17,
-        "string_length": 20
-    },
-    {
-        "name": "huge_100col",
-        "num_rows": 5000000,
-        "column_types": ['str', 'float', 'int'] * 33 + ['str'],
-        "string_length": 30
-    },
-    {
-        "name": "bigger_5col",
-        "num_rows": 20000000,
-        "column_types": ['int', 'str', 'float', 'int', 'str'],
-        "string_length": 36
-    },
-    {
-        "name": "massive_2col",
-        "num_rows": 100000000,
-        "column_types": ['int', 'float'],
-        "string_length": 16
-    },
-"""
+supported_dbs = ['sqlite', 'postgres', 'mysql', 'mssql', 'gdb']
+
 def main():
     base_dir = os.path.abspath(os.path.dirname(__file__))
     datasets_dir = os.path.join(base_dir, 'datasets')
@@ -160,17 +209,11 @@ def main():
         )
 
         condition_tree = build_condition_tree(test["column_types"])
-        for i in range(5):
-            sqlite_query = generate_query(test["column_types"], 'sqlite', condition_tree)
-            # postgres_query = generate_query(test["column_types"], 'postgres', condition_tree)
-            gdb_query = generate_query(test["column_types"], 'gdb', condition_tree)
-
-            with open(os.path.join(q_path, f"query_{i}.sqlite.sql"), 'w') as f:
-                f.write(sqlite_query + '\n')
-            # with open(os.path.join(q_path, f"query_{i}.postgres.sql"), 'w') as f:
-                # f.write(postgres_query + '\n')
-            with open(os.path.join(q_path, f"query_{i}.gdb.sql"), 'w') as f:
-                f.write(gdb_query + '\n')
+        for db in supported_dbs:
+            query = generate_query(test["column_types"], db, condition_tree)
+            ext = f"{db}.sql"
+            with open(os.path.join(q_path, f"query_0.{ext}"), 'w') as f:
+                f.write(query + '\n')
 
         print(f"Completed: {name}")
 

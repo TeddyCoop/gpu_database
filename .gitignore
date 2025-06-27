@@ -7,3 +7,10 @@ benchmark_info.txt
 /deterministic_datasets
 /src/third_party/vulkan
 /cmake_build
+/testing/datasets
+/testing/gdb_data
+/testing/gdb_logs
+/testing/kernel_cache
+/testing/queries
+testing/log.txt
+testing/gdb.exe
