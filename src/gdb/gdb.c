@@ -616,7 +616,7 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 table_name, String8 pat
   {
     U64 file_pos = 0;
     U64 sample_rows = 0;
-    Arena *parse_arena = arena_alloc(.reserve_size=MB(16), .commit_size=MB(1));
+    Arena *parse_arena = arena_alloc(.reserve_size=MB(128), .commit_size=MB(4));
     
     String8 leftover = {0};
     
@@ -1016,6 +1016,11 @@ gdb_column_add_data(GDB_Column* column, void* data)
   if (column->type == GDB_ColumnType_String8)
   {
     String8* str = (String8*)data;
+    String8 empty_str = str8_lit("");
+    if (str == NULL)
+    {
+      str = &empty_str;
+    }
     
     if (column->is_disk_backed)
     {
