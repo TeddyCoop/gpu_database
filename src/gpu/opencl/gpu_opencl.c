@@ -411,7 +411,7 @@ gpu_kernel_set_arg_u64(GPU_Kernel* kernel, U32 index, U64 value)
 global String8 g_gpu_opencl_str_match_code =
 str8_lit_comp(
               "int gpu_str_match(\n"
-              "  __global const char* data, __global const ulong* offsets, ulong row_index, ulong row_count,\n"
+              "  __global const char* data, __global const ulong* offsets, ulong row_index, \n"
               "  __constant const char* compare_str, int compare_size) {\n"
               "\n"
               "    ulong start = offsets[row_index];\n"
@@ -439,7 +439,7 @@ str8_lit_comp(
               "    ulong end   = offsets[row_index+1];\n"
               "    ulong str_size = end - start;\n"
               "    \n"
-              "    if (compare_size > str_size) return 0;\n"
+              "    if (str_size != (ulong)compare_size) return 0;\n"
               "    \n"
               "    for (ulong i = 0; i <= str_size - compare_size; i++) {\n"
               "        int match = 1;\n"
@@ -506,7 +506,7 @@ gpu_opencl_generate_where(Arena* arena, String8List* builder, IR_Node* condition
       {
         if (str8_match(condition->value, str8_lit("=="), 0))
         {
-          str8_list_pushf(arena, builder, "gpu_str_match(%.*s_data, %.*s_offsets, i, row_count, \"%.*s\", %llu)",
+          str8_list_pushf(arena, builder, "gpu_str_match(%.*s_data, %.*s_offsets, i, \"%.*s\", %llu)",
                           str8_varg(left->value),
                           str8_varg(left->value),
                           str8_varg(right->value),

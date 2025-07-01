@@ -14,3 +14,4 @@ benchmark_info.txt
 /testing/queries
 testing/log.txt
 testing/gdb.exe
+testing/profile.json

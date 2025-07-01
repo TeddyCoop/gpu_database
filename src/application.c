@@ -478,7 +478,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     U64 group_size = 32;
     U64 row_count = table->row_count;
     U64 global_size = (row_count + (group_size - 1)) & ~(group_size - 1);
-    gpu_kernel_execute(kernel, global_size, group_size);
+    //gpu_kernel_execute(kernel, Min(global_size, row_count), Min(group_size, row_count));
+    gpu_kernel_execute(kernel, Min(global_size, row_count), 1);
     gpu_kernel_execution_time += gpu_get_executed_kernel_time_microseconds();
     
     gpu_wait();
