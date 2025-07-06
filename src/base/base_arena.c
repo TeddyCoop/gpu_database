@@ -108,7 +108,8 @@ arena_push(Arena *arena, U64 size, U64 align)
     SLLStackPush_N(arena->current, new_block, prev);
     current = new_block;
     pos_pre = AlignPow2(current->pos, align);
-    pos_pst = pos_pst + size;
+    //pos_pst = pos_pst + size;
+    pos_pst = pos_pre + size;
   }
   
   // tec: commit new pages, if needed

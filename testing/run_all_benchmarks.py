@@ -81,6 +81,7 @@ def main():
     parser.add_argument("--engines", nargs="*", default=list(ENGINE_SCRIPTS.keys()),
                         help="Subset of engines to run (default: all)")
     parser.add_argument("--blacklist", nargs="*", default=[], help="List of dataset names to skip")
+    parser.add_argument("--whitelist", nargs="*", default=[], help="Only run benchmarks for these dataset names")
 
     args = parser.parse_args()
 
@@ -88,9 +89,15 @@ def main():
     query_root = os.path.abspath(args.queries_dir)
 
     args.engines = ["gdb"]
-    args.blacklist = ["one_billion_rows_2col"]
+    args.blacklist = [""]
+    #args.blacklist = ["one_billion_rows_2col"]
+    args.whitelist = ["one_billion_rows_2col"]
 
     for test_name in os.listdir(dataset_root):
+        if args.whitelist and test_name not in args.whitelist:
+            print(f"[SKIP] Not in whitelist: {test_name}")
+            continue
+
         if test_name in args.blacklist:
             print(f"[SKIP] Blacklisted dataset: {test_name}")
             continue
@@ -105,5 +112,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# gdb: long_string_3col causes gpu error

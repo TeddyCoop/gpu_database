@@ -63,37 +63,6 @@ entry_point(CmdLine* cmdline)
     log_info("invalid query %.*s", str8_varg(query_str));
   }
   
-  /*
-  String8 create_query = str8_lit("CREATE DATABASE testing;"
-                                  "IMPORT INTO xlong_2col FROM 'xlong_2col.csv';");
-  
-  String8 select_query = str8_lit("USE testing;"
-                                  "SELECT * FROM xlong_2col "
-                                  "WHERE col_0 == 467;");
-  app_execute_query(create_query);
-  //app_execute_query(select_query);
-  */
-  
-  /*
-  String8 create_query = str8_lit("CREATE DATABASE testing;"
-                                  "IMPORT INTO short_2col FROM 'short_2col.csv';");
-  
-  String8 select_query = str8_lit("USE testing;"
-                                  "SELECT * FROM short_2col "
-                                  "WHERE col_0 == 0;");
-  */
-  
-  /*
-  String8 create_query = str8_lit("CREATE DATABASE testing;"
-                                  "IMPORT INTO large_3col FROM 'large_3col.csv';");
-  */
-  
-  //String8 select_query = str8_lit("SELECT * FROM data WHERE (col_8 >= 810272 AND (col_6 >= 826589 OR (236.74 < col_1 < 1122.1) OR (2938.12 < col_2 < 3680.28) OR (3925.79 < col_0 < 4501.07)) AND ((2007.37 < col_1 < 2099.66) OR col_9 >= 626703 OR col_7 >= 908574));");
-  //String8 select_query = str8_lit("SELECT * FROM data WHERE (col_8 >= 810272 AND (col_6 >= 826589 OR ((236.74 < col_1) AND (col_1 < 1122.1))));");
-  //"WHERE col_2 == 'val_2_2';");
-  //app_execute_query(create_query);
-  //app_execute_query(select_query);
-  
   ProfEnd();
   ProfEndCapture();
   log_release();

@@ -3,7 +3,7 @@ import time
 import argparse
 import subprocess
 
-skip_database_creation = False
+skip_database_creation = True
 
 def run_gdb_query(csv_path, query_path):
     if not os.path.exists("gdb_logs"):

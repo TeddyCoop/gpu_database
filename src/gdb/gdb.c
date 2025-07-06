@@ -687,7 +687,7 @@ gdb_table_import_csv_streaming(GDB_Database *db, String8 table_name, String8 pat
       
       GDB_ColumnSchema schema = gdb_column_schema_create(column_names[i], types[i]);
       gdb_table_add_column(table, schema);
-      log_info("column type: %.*s", str8_varg(string_from_gdb_column_type(types[i])));
+      //log_info("column type: %.*s", str8_varg(string_from_gdb_column_type(types[i])));
     }
   }
   
