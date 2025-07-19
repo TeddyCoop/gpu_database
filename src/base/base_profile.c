@@ -86,8 +86,13 @@ prof_record_event(ProfEventType type, const char *name, const char *file, int li
     
     if (g_prof->event_count >= g_prof->event_capacity) 
     {
-      g_prof->event_capacity = (g_prof->event_capacity ? g_prof->event_capacity * 2 : 1024);
-      g_prof->events = push_array(g_prof->arena, ProfEvent, g_prof->event_capacity);
+      U64 new_capacity = g_prof->event_capacity ? g_prof->event_capacity * 2 : 1024;
+      ProfEvent *new_events = push_array(g_prof->arena, ProfEvent, new_capacity);
+      
+      MemoryCopy(new_events, g_prof->events, sizeof(ProfEvent) * g_prof->event_count);
+      
+      g_prof->events = new_events;
+      g_prof->event_capacity = new_capacity;
     }
     
     U64 idx = g_prof->event_count++;

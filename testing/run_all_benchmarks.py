@@ -7,10 +7,8 @@ import sys
 # Define engines and their corresponding runner script filenames
 ENGINE_SCRIPTS = {
     "sqlite": "benchmark_sqlite.py",
-    "mysql": "benchmark_mysql.py",
-    "postgres": "benchmark_postgres.py",
-    "mssql": "benchmark_mssql.py",
-    "gdb": "benchmark_gdb.py"
+    "duckdb": "benchmark_duckdb.py",
+    "gdb": "benchmark_gdb.py",
 }
 
 
@@ -21,40 +19,15 @@ def run_benchmark(engine, csv_path, query_path, args):
         return
 
     cmd = [sys.executable, script, csv_path, query_path]
+    if engine in ["sqlite", "duckdb"]:
+        if args.in_memory:
+            cmd.append("--in-memory")
 
-    # Add engine-specific args only if they are provided (avoid NoneType)
-    if engine == "mysql":
-        if args.mysql_user and args.mysql_pass and args.mysql_db:
-            cmd += ["--user", args.mysql_user, "--password", args.mysql_pass, "--database", args.mysql_db]
-        else:
-            print(f"[ERROR] Missing MySQL credentials. Skipping {engine.upper()}.")
-            return
-        if args.in_memory:
-            cmd.append("--in-memory")
-    elif engine == "postgres":
-        if args.pg_user and args.pg_pass and args.pg_db:
-            cmd += ["--user", args.pg_user, "--password", args.pg_pass, "--database", args.pg_db]
-        else:
-            print(f"[ERROR] Missing PostgreSQL credentials. Skipping {engine.upper()}.")
-            return
-        if args.in_memory:
-            cmd.append("--in-memory")
-    elif engine == "mssql":
-        if args.mssql_dsn and args.mssql_user and args.mssql_pass:
-            cmd += ["--dsn", args.mssql_dsn, "--user", args.mssql_user, "--password", args.mssql_pass]
-        else:
-            print(f"[ERROR] Missing MSSQL credentials. Skipping {engine.upper()}.")
-            return
-        if args.in_memory:
-            cmd.append("--in-memory")
-    elif engine in ["sqlite", "gdb"]:
-        pass  # SQLite and GDB need no additional auth
-
-    if args.use_index:
+    if args.use_index and engine != "gdb":
         cmd.append("--use-index")
 
     print(f"\n>>> Running benchmark for {engine.upper()}:")
-    print("Command:", cmd)
+    #print("Command:", cmd)
     start = time.time()
     subprocess.run(cmd)
     end = time.time()
@@ -67,17 +40,6 @@ def main():
     parser.add_argument("--in-memory", action="store_true", help="Use in-memory tables if supported")
     parser.add_argument("--use-index", action="store_true", help="Enable indexing on primary column")
 
-    # Auth info for each DB engine
-    parser.add_argument("--mysql-user")
-    parser.add_argument("--mysql-pass")
-    parser.add_argument("--mysql-db")
-    parser.add_argument("--pg-user")
-    parser.add_argument("--pg-pass")
-    parser.add_argument("--pg-db")
-    parser.add_argument("--mssql-dsn")
-    parser.add_argument("--mssql-user")
-    parser.add_argument("--mssql-pass")
-
     parser.add_argument("--engines", nargs="*", default=list(ENGINE_SCRIPTS.keys()),
                         help="Subset of engines to run (default: all)")
     parser.add_argument("--blacklist", nargs="*", default=[], help="List of dataset names to skip")
@@ -88,10 +50,12 @@ def main():
     dataset_root = os.path.abspath(args.dataset_dir)
     query_root = os.path.abspath(args.queries_dir)
 
-    args.engines = ["gdb"]
-    args.blacklist = [""]
-    #args.blacklist = ["one_billion_rows_2col"]
-    args.whitelist = ["one_billion_rows_2col"]
+    args.engines = ["duckdb", "sqlite", "gdb"]
+    args.in_memory = False
+    args.use_index = False
+    #args.blacklist = [""]
+    #args.whitelist = ["indexed_one_billion_rows_2col"]
+    args.blacklist = ["indexed_one_billion_rows_2col", "hundred_million_rows_2col"]
 
     for test_name in os.listdir(dataset_root):
         if args.whitelist and test_name not in args.whitelist:

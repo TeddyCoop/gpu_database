@@ -5,7 +5,8 @@
 
 #define FORCE_KERNEL_COMPILATION 0
 #define PRINT_SELECT_OUTPUT 0
-#define GPU_MAX_BUFFER_SIZE MB(512)
+//#define GPU_MAX_BUFFER_SIZE MB(512)
+#define GPU_MAX_BUFFER_SIZE GB(1)
 
 #include "base/base_inc.h"
 #include "os/os_inc.h"

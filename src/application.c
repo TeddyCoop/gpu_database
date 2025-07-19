@@ -199,6 +199,7 @@ app_execute_query(String8 sql_query)
       case IR_NodeType_Select:
       {
         ProfBegin("SQL: Select");
+        U64 start_time = os_now_microseconds();
         
         ir_expand_star_to_columns(arena, database, ir_execution_node);
         
@@ -247,6 +248,9 @@ app_execute_query(String8 sql_query)
           scratch_end(scratch);
         }
 #endif
+        
+        log_info("total 'SELECT' query time: %.4f ms", (os_now_microseconds() - start_time) / 1000.0f);
+        
         ProfEnd();
       } break;
       
@@ -278,7 +282,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   String8List active_columns = { 0 };
   ir_create_active_column_list(arena, where_clause, &active_columns);
   String8 kernel_code = gpu_generate_kernel_from_ir(arena, kernel_name, database, root_node, &active_columns);
-  log_debug("kernel output:\n%.*s", str8_varg(kernel_code));
+  //log_debug("kernel output:\n%.*s", str8_varg(kernel_code));
   
   GPU_Kernel* kernel = gpu_kernel_alloc(kernel_name, kernel_code);
   if (!kernel)
@@ -298,6 +302,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
   }
   
   U64 gpu_kernel_execution_time = 0;
+  U64 load_data_from_disk_time = 0;
   
   if (largest_column_size > GPU_MAX_BUFFER_SIZE)
   {
@@ -334,11 +339,13 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         
         if (column->type == GDB_ColumnType_String8)
         {
+          U64 start_read_time = os_now_microseconds();
           GDB_StringDataChunk chunk = gdb_column_get_string_chunk(
                                                                   chunk_arena.arena,
                                                                   column,
                                                                   r1u64(chunk_index * rows_per_chunk, Min((chunk_index + 1) * rows_per_chunk, table->row_count))
                                                                   );
+          load_data_from_disk_time += os_now_microseconds() - start_read_time;
           
           if (chunk.data && chunk.offsets)
           {
@@ -352,12 +359,14 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         else
         {
           U64 size = 0;
+          U64 start_read_time = os_now_microseconds();
           void* data_ptr = gdb_column_get_data_range(
                                                      chunk_arena.arena,
                                                      column,
                                                      r1u64(chunk_index * rows_per_chunk, Min((chunk_index + 1) * rows_per_chunk, table->row_count)),
                                                      &size
                                                      );
+          load_data_from_disk_time += os_now_microseconds() - start_read_time;
           
           if (data_ptr)
           {
@@ -503,7 +512,8 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
     }
   }
   
-  log_info("gpu kernel execution time: %llu microseconds", gpu_kernel_execution_time);
+  log_info("gpu kernel total execution time: %llu microseconds", gpu_kernel_execution_time);
+  log_info("load from disk total time: %llu microseconds", load_data_from_disk_time);
   
   ProfEnd();
   return result;

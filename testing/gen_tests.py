@@ -6,19 +6,57 @@ import string
 def random_string(length):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
-def generate_csv(filename, num_rows, column_types, string_length=10):
+def generate_csv(filename, num_rows, column_types, string_length=10, index_first_col=False, deterministic=False):
     with open(filename, 'w', newline='') as f:
         writer = csv.writer(f)
         header = [f"col_{i}" for i in range(len(column_types))]
         writer.writerow(header)
+        used_keys = set() if index_first_col else None
 
         for i in range(num_rows):
             row = []
-            for col_type in column_types:
+            for j, col_type in enumerate(column_types):
                 if col_type == 'str':
-                    row.append(random_string(string_length))
+                    if deterministic:
+                        val = f"str{i}_{j}"
+                    else:
+                        val = random_string(string_length)
+                    if index_first_col and j == 0:
+                        while val in used_keys:
+                            val = f"str{i}_{j}_{random.randint(0, 999)}".ljust(string_length, 'x')[:string_length]
+                        used_keys.add(val)
+                    row.append(val)
                 elif col_type == 'int':
-                    row.append(str(random.randint(0, 1_000_000)))
+                    val = i if (deterministic or (index_first_col and j == 0)) else random.randint(0, 1_000_000)
+                    row.append(str(val))
+                elif col_type == 'float':
+                    val = float(i) % 10000 if deterministic else round(random.uniform(0, 10000), 2)
+                    row.append(str(round(val, 2)))
+            writer.writerow(row)
+            if i % 100000 == 0 and i > 0:
+                print(f"Wrote {i:,} rows to {filename}...")
+        writer = csv.writer(f)
+        header = [f"col_{i}" for i in range(len(column_types))]
+        writer.writerow(header)
+        used_keys = set() if index_first_col else None
+
+        for i in range(num_rows):
+            row = []
+            for j, col_type in enumerate(column_types):
+                if col_type == 'str':
+                    val = random_string(string_length)
+                    # Ensure uniqueness if it's the first column and should be indexed
+                    if index_first_col and j == 0:
+                        while val in used_keys:
+                            val = random_string(string_length)
+                        used_keys.add(val)
+                    row.append(val)
+                elif col_type == 'int':
+                    if index_first_col and j == 0:
+                        val = i  # just use the row number for uniqueness
+                    else:
+                        val = random.randint(0, 1_000_000)
+                    row.append(str(val))
                 elif col_type == 'float':
                     row.append(str(round(random.uniform(0, 10000), 2)))
 #                elif col_type == 'bool':
@@ -79,6 +117,8 @@ def format_condition_tree(condition_tree, db):
                     conds.append(f"{col} ILIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
                 elif db == 'sqlite':
                     conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
+                elif db == 'duckdb':
+                    conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
                 elif db == 'mysql':
                     conds.append(f"{col} LIKE '%{val}%'" if op == "contains" else f"{col} = '{val}'")
                 elif db == 'mssql':
@@ -105,7 +145,62 @@ def ensure_dirs(path):
     os.makedirs(path, exist_ok=True)
 
 test_cases = [
-    # Basic sanity tests
+    {
+        "name": "deterministic_100k_rows_3col",
+        "num_rows": 1_000_000,
+        "column_types": ['int', 'float', 'str'],
+        "index_first_col": True,
+        "deterministic": True
+    },
+]
+
+supported_dbs = ['sqlite', 'duckdb', 'postgres', 'mysql', 'mssql', 'gdb']
+
+def main():
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    datasets_dir = os.path.join(base_dir, 'datasets')
+    queries_dir = os.path.join(base_dir, 'queries')
+
+    for test in test_cases:
+        name = test["name"]
+        print(f"\nGenerating test case: {name}")
+
+        ds_path = os.path.join(datasets_dir, name)
+        q_path = os.path.join(queries_dir, name)
+        ensure_dirs(ds_path)
+        ensure_dirs(q_path)
+
+        csv_path = os.path.join(ds_path, 'data.csv')
+        generate_csv(
+            filename=csv_path,
+            num_rows=test["num_rows"],
+            column_types=test["column_types"],
+            string_length=test.get("string_length", 0),
+            index_first_col=test.get("index_first_col", False),
+            deterministic=test.get("deterministic", False)
+        )
+
+        condition_tree = build_condition_tree(test["column_types"])
+        for db in supported_dbs:
+            query = generate_query(test["column_types"], db, condition_tree)
+            ext = f"{db}.sql"
+            with open(os.path.join(q_path, f"query_0.{ext}"), 'w') as f:
+                f.write(query + '\n')
+
+        print(f"Completed: {name}")
+
+if __name__ == '__main__':
+    main()
+
+"""
+    {
+        "name": "one_billion_rows_2col",
+        "num_rows": 1_000_000_000,
+        "column_types": ['int', 'float'],
+        "string_length": 0,
+        "index_first_col": True,
+    },
+# Basic sanity tests
     {
         "name": "single_int_10rows",
         "num_rows": 10,
@@ -182,40 +277,4 @@ test_cases = [
         "column_types": ['float'] * 5 + ['int'] * 5,
         "string_length": 0,
     }
-]
-
-supported_dbs = ['sqlite', 'postgres', 'mysql', 'mssql', 'gdb']
-
-def main():
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    datasets_dir = os.path.join(base_dir, 'datasets')
-    queries_dir = os.path.join(base_dir, 'queries')
-
-    for test in test_cases:
-        name = test["name"]
-        print(f"\nGenerating test case: {name}")
-
-        ds_path = os.path.join(datasets_dir, name)
-        q_path = os.path.join(queries_dir, name)
-        ensure_dirs(ds_path)
-        ensure_dirs(q_path)
-
-        csv_path = os.path.join(ds_path, 'data.csv')
-        generate_csv(
-            filename=csv_path,
-            num_rows=test["num_rows"],
-            column_types=test["column_types"],
-            string_length=test["string_length"]
-        )
-
-        condition_tree = build_condition_tree(test["column_types"])
-        for db in supported_dbs:
-            query = generate_query(test["column_types"], db, condition_tree)
-            ext = f"{db}.sql"
-            with open(os.path.join(q_path, f"query_0.{ext}"), 'w') as f:
-                f.write(query + '\n')
-
-        print(f"Completed: {name}")
-
-if __name__ == '__main__':
-    main()
+"""
