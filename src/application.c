@@ -349,12 +349,16 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
           
           if (chunk.data && chunk.offsets)
           {
-            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.data);
+            //column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.data);
+            column_gpu_buffers[column_index] = gpu_buffer_alloc(chunk.size, GPU_BufferFlag_Write | GPU_BufferFlag_HostVisible, NULL);
+            gpu_buffer_write(column_gpu_buffers[column_index], chunk.data, chunk.size);
             column_index++;
             
             column_gpu_buffers[column_index] = gpu_buffer_alloc((chunk.row_count + 1) * sizeof(U64), GPU_BufferFlag_Write | GPU_BufferFlag_CopyHostPointer, chunk.offsets);
             column_index++;
           }
+          
+          gdb_column_close_string_chunk(column);
         }
         else
         {
@@ -461,6 +465,7 @@ app_perform_kernel(Arena* arena, String8 kernel_name, GDB_Database* database, IR
         {
           log_error("failed to load string data or offsets for column: %.*s", str8_varg(column->name));
         }
+        gdb_column_close_string_chunk(column);
       }
       else
       {

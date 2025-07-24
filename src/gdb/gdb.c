@@ -1429,14 +1429,18 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     {
       file = os_file_open(OS_AccessFlag_Read, column->disk_path);
     }
+    OS_Handle file_map = column->file_map;
+    if (os_handle_match(os_handle_zero(), file_map))
+    {
+      file_map = os_file_map_open(OS_AccessFlag_Read, file);
+      column->file_map = file_map;
+    }
     
     U64 variable_reserved = 0;
     os_file_read(file, r1u64(0, sizeof(U64)), &variable_reserved);
     
     U64 start_offset = 0;
     U64 end_offset = 0;
-    //U64 offset_position_start = sizeof(U64) + variable_reserved + (row_range.min * sizeof(U64));
-    //U64 offset_position_end = sizeof(U64) + variable_reserved + (row_range.max * sizeof(U64));
     U64 offset_position_start = variable_reserved + (row_range.min * sizeof(U64));
     U64 offset_position_end = variable_reserved + (row_range.max * sizeof(U64));
     
@@ -1461,10 +1465,28 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
     
     ProfBegin("read string data");
     U64 size = end_offset - start_offset;
+    Rng1U64 str_data_range = r1u64(start_offset + sizeof(U64), start_offset + size + sizeof(U64));
     result.data = push_array(arena, U8, size);
-    if (os_file_read(file, r1u64(start_offset + sizeof(U64), start_offset + size + sizeof(U64)), result.data) != size)
+    /*
+    if (os_file_read(file, , result.data) != size)
     {
       log_error("Failed to read string data for rows [%llu - %llu]", row_range.min, row_range.max);
+    }
+    */
+    column->mapped_ptr = os_file_map_view_open(file_map, OS_AccessFlag_Read, str_data_range);
+    result.data = column->mapped_ptr;
+    column->current_mapped_range = str_data_range;
+    if (column->mapped_ptr)
+    {
+      /*
+      ProfBegin("memory copy");
+      MemoryCopy(result.data, mapped_ptr, size);
+      ProfEnd();
+      */
+    }
+    else
+    {
+      log_error("failed to map file for string data");
     }
     ProfEnd();
     
@@ -1511,6 +1533,13 @@ gdb_column_get_string_chunk(Arena* arena, GDB_Column* column, Rng1U64 row_range)
   
   ProfEnd();
   return result;
+}
+
+internal void
+gdb_column_close_string_chunk(GDB_Column* column)
+{
+  OS_Handle file_map = column->file_map;
+  os_file_map_view_close(file_map, column->mapped_ptr, column->current_mapped_range);
 }
 
 internal String8

@@ -111,7 +111,9 @@ struct GDB_Column
   String8 disk_path;
   OS_Handle file;
   OS_Handle file_map;
+  U64 mapped_size;
   void* mapped_ptr;
+  Rng1U64 current_mapped_range;
   
   struct GDB_Table* parent_table;
 };
@@ -152,7 +154,6 @@ struct GDB_CSV_ThreadContext
   U64 starting_row_index;
   U64 view_size;
 };
-
 
 typedef struct GDB_Database GDB_Database;
 struct GDB_Database

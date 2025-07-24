@@ -307,7 +307,7 @@ os_file_open(OS_AccessFlags flags, String8 path)
   if(flags & OS_AccessFlag_ShareWrite) {share_mode |= FILE_SHARE_WRITE|FILE_SHARE_DELETE;}
   if(flags & OS_AccessFlag_Write)   {creation_disposition = CREATE_ALWAYS;}
   if(flags & OS_AccessFlag_Append)  {creation_disposition = OPEN_ALWAYS;}
-  HANDLE file = CreateFileW((WCHAR *)path16.str, access_flags, share_mode, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL, 0);
+  HANDLE file = CreateFileW((WCHAR *)path16.str, access_flags, share_mode, 0, creation_disposition, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, 0);
   if(file != INVALID_HANDLE_VALUE)
   {
     result.u64[0] = (U64)file;
@@ -659,9 +659,27 @@ internal void *
 os_file_map_view_open(OS_Handle map, OS_AccessFlags flags, Rng1U64 range)
 {
   HANDLE handle = (HANDLE)map.u64[0];
+  /*
   U32 off_lo = (U32)((range.min&0x00000000ffffffffull)>>0);
   U32 off_hi = (U32)((range.min&0xffffffff00000000ull)>>32);
   U64 size = dim_1u64(range);
+  */
+  // Get system allocation granularity
+  SYSTEM_INFO sys_info;
+  GetSystemInfo(&sys_info);
+  U64 granularity = (U64)sys_info.dwAllocationGranularity;
+  
+  // Align the offset and adjust size
+  U64 offset = range.min;
+  U64 size = dim_1u64(range);
+  
+  U64 aligned_offset = offset & ~(granularity - 1);
+  U64 offset_delta   = offset - aligned_offset;
+  U64 aligned_size   = size + offset_delta;
+  
+  DWORD offset_low  = (DWORD)(aligned_offset & 0xFFFFFFFF);
+  DWORD offset_high = (DWORD)(aligned_offset >> 32);
+  
   DWORD access_flags = 0;
   {
     switch(flags)
@@ -688,6 +706,8 @@ os_file_map_view_open(OS_Handle map, OS_AccessFlags flags, Rng1U64 range)
       }break;
     }
   }
+  
+  /*
   void *result = MapViewOfFile(handle, access_flags, off_hi, off_lo, size);
   if (!result)
   {
@@ -695,6 +715,17 @@ os_file_map_view_open(OS_Handle map, OS_AccessFlags flags, Rng1U64 range)
     log_error("MapViewOfFile failed - Code: %lu", error);
   }
   return result;
+  */
+  void *base_ptr = MapViewOfFile(handle, access_flags, offset_high, offset_low, (SIZE_T)aligned_size);
+  if (!base_ptr)
+  {
+    DWORD error = GetLastError();
+    log_error("MapViewOfFile failed - Code: %lu (offset=%llu, size=%llu, aligned_offset=%llu, aligned_size=%llu)", error, offset, size, aligned_offset, aligned_size);
+    return 0;
+  }
+  
+  // Adjust the pointer to the exact requested range
+  return (void *)((U8 *)base_ptr + offset_delta);
 }
 
 internal void
